@@ -16,7 +16,7 @@ Mac（OrbStack，唯一容器 dsh：2 CPU / 2GiB 上限，默认停止、按需�
    ├─ delegate_coder     进程内 spawn：实现/改文件/跑命令（effort=low，maxDepth=1）
    └─ delegate_reviewer  进程内 spawn：只读独立复核（effort=high，maxDepth=1）
    状态：$DSH_HOME 的会话 JSONL + AGENTS.md（无数据库进程）
-   └─ 推理：三角色全部走云端 TokenDance / deepseek-v4-pro-0813（本机不跑模型）
+   └─ 推理：三角色全部走云端 DeepSeek 官方 API / deepseek-flash（本机不跑模型）
 ```
 
 - 角色是同一 Node 进程内的 spawn 协程，**不多开容器/进程**；`maxDepth:1` 保证扁平。
@@ -38,7 +38,7 @@ Mac（OrbStack，唯一容器 dsh：2 CPU / 2GiB 上限，默认停止、按需�
 | `dsh-home/roster/team-lead.yml` | **唯一事实源**：三个角色的模型/档位/预算/工具白名单/复核口径；改它再跑 `scripts/render-team.mjs --write` |
 | `dsh-home/.agent-presets/team-lead/agent.cordis.yml` | **核心**：由内置 standard 预设复制，含 bash/fs/检索；委派角色、压缩/剪枝配置在 `generated:` 标记区内由 roster 生成，Lead persona 手写 |
 | `dsh-home/.agent-presets/team-lead/preset.yml` | 预设显示名「团队Lead模式」 |
-| `dsh-home/settings.yaml` | `agent-presets.default: team-lead`（新建会话默认用它）+ TokenDance 模型路由 |
+| `dsh-home/settings.yaml` | `agent-presets.default: team-lead`（新建会话默认用它）+ DeepSeek 官方模型路由 |
 | `dsh-home/AGENTS.md` | 用户级全局协作规则（与预设 persona 互补） |
 | `dsh-home/team-roles.patch.yml` | 仅 **headless/CLI** 一次性测试用的角色补丁（Web 不需要，Web 走预设） |
 | `dsh-home/profiles/web/cordis.patch.yml` | Web 宿主补丁，**保持 `[]`**（角色不放宿主层，原因见第 5 节） |
