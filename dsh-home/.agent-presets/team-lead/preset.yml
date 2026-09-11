@@ -1,0 +1,3 @@
+name: 团队Lead模式
+description: 三角色协同主控（标准编码能力 + 进程内 Coder/Reviewer 一次性委派）。
+order: 1

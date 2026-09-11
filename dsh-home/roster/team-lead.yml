@@ -1,0 +1,101 @@
+# 团队角色清单 —— 唯一事实源（single source of truth）。
+#
+# 改这里，然后运行（默认 dry-run，只打印将写入的差异）：
+#   node dsh-workbench/scripts/render-team.mjs            # 预览 + 一致性检查
+#   node dsh-workbench/scripts/render-team.mjs --write    # 应用
+#   node dsh-workbench/scripts/render-team.mjs --check    # 只校验（漂移则退出码 1）
+#   node dsh-workbench/scripts/render-team.mjs --print    # 人可读角色表
+#
+# 生成物（不要手改）：
+#   dsh-home/.agent-presets/team-lead/agent.cordis.yml 的 token-policy / roles 标记区
+#   dsh-home/team-roles.patch.yml（整文件）
+#   dsh-home/AGENTS.md 的 team-policy 标记块
+#   dsh-home/settings.yaml 的 agent-default-model.reasoningEffort（跟随 leadEffort）
+
+version: 1
+
+preset:
+  id: team-lead
+  name: 团队Lead模式
+
+model:
+  provider: tokendance
+  model: deepseek-v4-pro-0813
+  # Lead 的思考强度。该网关模型只声明 low / high / max 三档（模型说明：
+  # “简单任务使用 low，日常 Agent 任务使用 high”），high 是官方推荐的日常档位。
+  # 想更省就改成 low（同样会校验档位是否存在），max 留给最难任务。
+  leadEffort: high
+
+context:
+  # 上下文压缩：1M 窗口不再等到 80% 才压缩；压完只保留 20k 近期上下文。
+  compaction:
+    thresholdRatio: 0.2
+    retainTokens: 20000
+  # 工具结果剪枝：大输出一旦进入上下文，之后每一步都会重发，所以收紧上限。
+  pruning:
+    thresholdChars: 4096
+    headChars: 2048
+    tailChars: 512
+
+review:
+  # 复核口径：l3-and-risky = 仅 L3 / 高风险 / 结果可疑时调用 delegate_reviewer。
+  policy: l3-and-risky
+
+roles:
+  - id: coder
+    toolName: delegate_coder
+    title: Coder
+    purpose: 实现最小正确改动并自测
+    effort: low
+    maxTokens: 32768
+    maxDepth: 1
+    backgroundMode: one-shot
+    # 每步都会重发的工具 schema，能不给就不给；世界模型与文件系统保留。
+    toolDeny:
+      - web_search
+      - web_fetch
+      - subagent
+      - subagent_fork
+      - subagent_codex
+      - subagent_claude_code
+      - delegate_coder
+      - delegate_reviewer
+    report:
+      - what changed
+      - commands run + outcome
+      - residual risk
+    persona: |
+      You are the Coder. Implement exactly the delegated task with minimal,
+      correct changes. Run the relevant command/check when useful. If the task
+      names an artifact/output directory, create it if needed and write EVERY
+      final deliverable file into that exact absolute path (keep working edits
+      where they belong, but place finished deliverables there); report the
+      exact file paths written. Do not review architecture and do not spawn
+      other agents.
+
+  - id: reviewer
+    toolName: delegate_reviewer
+    title: Reviewer
+    purpose: 只读独立复核，给出 pass/issues 与证据
+    effort: high
+    maxTokens: 32768
+    maxDepth: 1
+    backgroundMode: one-shot
+    toolDeny:
+      - write
+      - edit
+      - web_search
+      - web_fetch
+      - subagent
+      - subagent_fork
+      - subagent_codex
+      - subagent_claude_code
+      - delegate_coder
+      - delegate_reviewer
+    report:
+      - verdict (pass | issues)
+      - evidence (commands + output summary)
+      - issues with exact locations
+    persona: |
+      You are the Reviewer. Independently verify the delegated work by reading
+      files and running read-only checks/tests. Never modify or implement.

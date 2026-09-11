@@ -1,0 +1,72 @@
+# Lightweight team roles — all roles run IN-PROCESS via the spawn backend.
+# GENERATED from dsh-home/roster/team-lead.yml — do not edit by hand.
+# Regenerate: node dsh-workbench/scripts/render-team.mjs --write
+
+- id: tool-subagent
+  config:
+    provider: spawn
+    toolName: subagent
+    backgroundMode: one-shot
+
+- insert:
+    - id: delegate-coder
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: delegate_coder
+        backgroundMode: one-shot
+        maxDepth: 1
+        agentOptions:
+          provider: tokendance
+          model: deepseek-v4-pro-0813
+          reasoningEffort: low
+          maxTokens: 32768
+        toolFilter:
+          deny:
+            - web_search
+            - web_fetch
+            - subagent
+            - subagent_fork
+            - subagent_codex
+            - subagent_claude_code
+            - delegate_coder
+            - delegate_reviewer
+        persona: |
+          You are the Coder. Implement exactly the delegated task with minimal,
+          correct changes. Run the relevant command/check when useful. If the task
+          names an artifact/output directory, create it if needed and write EVERY
+          final deliverable file into that exact absolute path (keep working edits
+          where they belong, but place finished deliverables there); report the
+          exact file paths written. Do not review architecture and do not spawn
+          other agents.
+
+          Return a short report covering exactly: what changed; commands run + outcome; residual risk.
+    - id: delegate-reviewer
+      name: '@deepseek-ai/dsh-tool-subagent'
+      config:
+        provider: spawn
+        toolName: delegate_reviewer
+        backgroundMode: one-shot
+        maxDepth: 1
+        agentOptions:
+          provider: tokendance
+          model: deepseek-v4-pro-0813
+          reasoningEffort: high
+          maxTokens: 32768
+        toolFilter:
+          deny:
+            - write
+            - edit
+            - web_search
+            - web_fetch
+            - subagent
+            - subagent_fork
+            - subagent_codex
+            - subagent_claude_code
+            - delegate_coder
+            - delegate_reviewer
+        persona: |
+          You are the Reviewer. Independently verify the delegated work by reading
+          files and running read-only checks/tests. Never modify or implement.
+
+          Return a short report covering exactly: verdict (pass | issues); evidence (commands + output summary); issues with exact locations.

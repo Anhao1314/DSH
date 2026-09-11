@@ -1,0 +1,3 @@
+# Profile layer must stay empty on cold start. MCP servers are applied as an
+# explicit top-level `--patch` overlay by orbstack-entrypoint.sh.
+[]

@@ -1,0 +1,57 @@
+name: deepseek-harness
+
+services:
+  dsh:
+    build:
+      context: ../deepseek-harness
+      dockerfile: Dockerfile.orbstack
+    image: deepseek-harness:local
+    container_name: dsh
+    init: true
+    # Lightweight / on-demand: do not auto-start with OrbStack; bring it up with
+    # dsh-up.sh and stop it with dsh-down.sh. When stopped, local footprint is 0.
+    restart: "no"
+    # Hard caps so a runaway agent loop cannot eat the Mac (OrbStack/OCI limits).
+    cpus: "2.0"
+    mem_limit: 2g
+    environment:
+      # The OrbStack container IS the isolation boundary (only dsh-home is
+      # mounted). dsh's nested Linux sandbox needs bubblewrap/Landlock, neither
+      # of which is usable inside an unprivileged container, so run unconfined
+      # INSIDE the container and skip per-action approval (equivalent to the
+      # danger-full-access you approved manually). Remove this line to restore
+      # workspace-write + ask (commands would then be blocked without a sandbox).
+      DSH_PERMISSION_MODE: danger-full-access
+      # OrbStack resolves public names to its private relay range; DSH's safe
+      # web_fetch correctly rejects those addresses. Route external requests
+      # through the Mac system proxy, which resolves the hostname proxy-side.
+      HTTP_PROXY: ${HTTP_PROXY:-http://host.docker.internal:9674}
+      HTTPS_PROXY: ${HTTPS_PROXY:-http://host.docker.internal:9674}
+      ALL_PROXY: ${ALL_PROXY:-http://host.docker.internal:9674}
+      NO_PROXY: ${NO_PROXY:-127.0.0.1,localhost,host.docker.internal,172.16.0.0/12,192.168.0.0/16}
+    ports:
+      # Mac 3081 -> container edge relay 8080 -> dsh loopback 3080.
+      # 3081 avoids colliding with the host-native dsh running on 3080.
+      - "127.0.0.1:3081:8080"
+    volumes:
+      # Seeded DSH_HOME (settings.yaml + .credentials.yaml); container keeps
+      # its own profiles/sessions here, independent of the host ~/.dsh.
+      - ../dsh-home:/root/.dsh
+      - ../deepseek-harness/orbstack-relay.cjs:/app/orbstack-relay.cjs:ro
+      - ../deepseek-harness/orbstack-entrypoint.sh:/app/orbstack-entrypoint.sh:ro
+      # Shared multi-agent working tree and the dependency-free world store.
+      - ../../workspace:/workspace
+      - ../../world-store:/world-store:ro
+      # Reuse the Mac host Codex login without copying credentials into the repo.
+      - ${HOME}/.codex/auth.json:/root/.codex/auth.json:ro
+      - ../dsh-home/codex/config.toml:/root/.codex/config.toml:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "fetch('http://127.0.0.1:8080/console').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      start_period: 90s
+      retries: 9
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

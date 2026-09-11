@@ -1,0 +1,10 @@
+model = "deepseek-v4-pro-0813"
+model_provider = "custom"
+sandbox_mode = "danger-full-access"
+approval_policy = "on-request"
+
+[model_providers.custom]
+name = "custom"
+wire_api = "responses"
+requires_openai_auth = true
+base_url = "http://host.docker.internal:57321/v1"

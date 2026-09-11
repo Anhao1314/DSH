@@ -1,20 +1,27 @@
-# Native app build output
-dsh-desktop/build/
+# ── 本机工具链（187MB node 二进制，不属于项目源码）
+.toolchain/
 
-# Runtime data / caches that must never be committed
+# ── 上游 deepseek-harness 是独立 clone（含 190MB .git）：整棵排除。
+#    我们的本地 overlay 文件用 `git add -f` 强制跟踪：
+#      deepseek-harness/{.dockerignore,.npmrc,Dockerfile.orbstack,orbstack-entrypoint.sh,orbstack-relay.cjs}
+deepseek-harness/
+
+# ── 凭据与运行态（绝不入库）
+dsh-home/.credentials.yaml
+dsh-home/.anonymous-user-id
 dsh-home/.pnpm-store/
-dsh-home/storages/
 dsh-home/sessions/
+dsh-home/storages/
 dsh-home/artifacts/
 dsh-home/dump.err
 dsh-home/dump.txt
 dsh-home/**/*.roster-bak
+dsh-home/profiles/**/node_modules/
+dsh-home/profiles/**/.dsh-module-fallback/
+
+# ── 挂载点 / 构建产物
 workspace/
 world-store/
-
-# Vendored upstream dependencies
-deepseek-harness/node_modules/
-deepseek-harness/**/node_modules/
-deepseek-harness/**/*.tsbuildinfo
+dsh-desktop/build/
 
 .DS_Store

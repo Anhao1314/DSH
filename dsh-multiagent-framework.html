@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepSeek Harness 多 Agent 协同生态结构框架图</title>
+<style>
+  body{margin:0;padding:20px;background:#F4F3EE;color:#1A1B1C;
+    font-family:'Roboto','PingFang SC','Segoe UI',Arial,sans-serif;}
+  .wrap{max-width:960px;margin:0 auto;}
+  h1{font-size:18px;margin:0 0 4px;}
+  .sub{font-size:12.5px;color:#6B7280;margin-bottom:16px;}
+  .card{border-radius:12px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>DeepSeek Harness 本机轻量多 Agent 协同生态 · 结构框架图（示意）</h1>
+  <div class="sub">单容器 · 单进程 · 进程内三角色 · 推理全上云 · 文件状态挂载 · 按需启停（按 2026-09-09 实际配置）</div>
+  <div id="diagram"></div>
+</div>
+<script>
+(function(){
+  var el=document.getElementById('diagram'); if(!el) return;
+  el.innerHTML = DIAGRAM;
+})();
+</script>
+<script>var DIAGRAM=`
+<div style="box-sizing:border-box;font-size:13px;line-height:1.5;">
+
+  <!-- 用户层 -->
+  <div class="card" style="border:1.5px solid #C9CDD2;background:#fff;padding:10px 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+    <strong style="flex:0 0 auto;">① 你 / 浏览器</strong>
+    <span style="font-size:12px;color:#444;">Mac 上打开 <code>http://127.0.0.1:3081</code>（token 登录，每次重启变）—— 唯一入口，不跑模型</span>
+  </div>
+  <div style="text-align:center;font-size:14px;color:#6B7280;margin:2px 0;">▼ HTTP（经容器内边缘中继回环，不暴露公网）</div>
+
+  <!-- OrbStack / 容器边界 -->
+  <div class="card" style="border:2px solid #9AA0A6;background:rgba(0,0,0,.025);padding:12px;">
+    <div style="font-weight:600;font-size:13px;color:#444;margin-bottom:8px;display:flex;flex-wrap:wrap;gap:8px;">
+      <span>② OrbStack Linux 虚拟机 · 唯一容器 <b>dsh</b></span>
+      <span style="font-weight:400;font-size:11.5px;color:#6B7280;">上限 2 CPU / 2 GiB · restart=no（开机不自启）· 容器内 danger-full-access（以容器为隔离边界）</span>
+    </div>
+
+    <!-- 单进程 -->
+    <div class="card" style="border:2px solid #2F6E94;background:linear-gradient(135deg,rgba(139,200,234,.12),rgba(139,200,234,.20));padding:10px;">
+      <div style="font-weight:600;color:#2F6E94;font-size:13px;margin-bottom:8px;">③ 单个 Node 进程：dsh web（不多开进程/容器）</div>
+
+      <!-- 预设：角色层 -->
+      <div class="card" style="border:1.5px solid #8BC8EA;background:#fff;padding:10px;">
+        <div style="font-weight:600;font-size:12.5px;margin-bottom:8px;">④「团队Lead模式」预设 team-lead（角色都定义在预设层）</div>
+
+        <div class="card" style="border:1px solid #8BC8EA;background:rgba(47,110,148,.10);padding:8px 10px;margin-bottom:8px;">
+          <b>Lead / Planner（主控）</b>
+          <span style="font-size:11.5px;color:#444;">· 即主会话 · effort=max · 规划/派发/汇总，不亲自实现</span>
+        </div>
+
+        <div style="text-align:center;font-size:11px;color:#6B7280;margin-bottom:6px;">▼ 进程内 spawn｜一次性 one-shot｜maxDepth=1（扁平，不可再派生）｜等结果后即回收</div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          <div class="card" style="flex:1 1 200px;min-width:200px;border:1px solid #A2DDAA;background:rgba(82,196,26,.10);padding:8px 10px;">
+            <b>Coder</b>（delegate_coder）<br>
+            <span style="font-size:11.5px;color:#444;">effort=low · 32k · <b>可写文件/跑命令</b> · 最小正确改动并自测，回报改动+结果+风险</span>
+          </div>
+          <div class="card" style="flex:1 1 200px;min-width:200px;border:1px solid #C9A7E8;background:rgba(201,167,232,.14);padding:8px 10px;">
+            <b>Reviewer</b>（delegate_reviewer）<br>
+            <span style="font-size:11.5px;color:#444;">effort=high · 32k · <b>只读</b>独立复核/跑测试 · 输出 pass｜issues + 证据</span>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;font-size:11px;color:#6B7280;">
+          <span style="padding:4px 8px;border:1px dashed #C9CDD2;border-radius:8px;">通用兜底（非常驻角色）：subagent / subagent_fork</span>
+          <span style="padding:4px 8px;border:1px dashed #C9CDD2;border-radius:8px;color:#999;text-decoration:line-through;">已关闭外部接口：codex / claude-code</span>
+        </div>
+      </div>
+
+      <!-- 工具能力层 -->
+      <div class="card" style="margin-top:8px;border:1px solid #E4E3DD;background:#fff;padding:8px 10px;font-size:12px;">
+        ⑤ 能力/工具平面：bash 执行 · 文件读写编辑 · 检索 · 委派工具（Reviewer 的“只读”由 persona 约束）
+      </div>
+    </div>
+
+    <!-- 状态层 -->
+    <div class="card" style="margin-top:8px;border:1px solid #E4E3DD;background:#fff;padding:8px 10px;font-size:12px;display:flex;flex-wrap:wrap;gap:8px;">
+      <span style="flex:1 1 280px;min-width:240px;"><b>⑥ 状态层（无数据库）</b>：挂载目录 <code>dsh-home</code> = settings · 凭据(600) · 会话JSONL · AGENTS.md · team-lead 预设</span>
+      <span style="flex:1 1 200px;min-width:180px;">工作区：容器本地（暂留本机，未上远端）</span>
+    </div>
+  </div>
+
+  <!-- 云端模型 -->
+  <div style="text-align:center;font-size:14px;color:#6B7280;margin:2px 0;">▲ 三角色推理请求 / 响应（本机不跑模型，等待时 CPU≈0）▼</div>
+  <div class="card" style="border:1.5px solid #94D8C3;background:rgba(148,216,195,.14);padding:10px 12px;font-size:12.5px;">
+    <b>⑦ 云端模型</b>：TokenDance 网关 · deepseek-v4-pro-0813（OpenAI 兼容 · 上下文 1M；Lead=max / Coder=low / Reviewer=high）
+  </div>
+
+  <!-- 协同环 + 生命周期 -->
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">
+    <div class="card" style="flex:2 1 320px;min-width:260px;border:1px dashed #C9CDD2;background:#fff;padding:10px;font-size:12px;line-height:1.7;">
+      <b>协同环</b>：Lead 规划 → Coder 实现并自测 → Reviewer 独立复核 →
+      <span style="color:#A33;">问题则 FAIL 退回 Coder 修复再复核</span> →
+      <span style="color:#2f7d18;">PASS 后 Lead 汇总答复</span>
+    </div>
+    <div class="card" style="flex:1 1 180px;min-width:180px;border:1px dashed #C9CDD2;background:#fff;padding:10px;font-size:12px;line-height:1.7;">
+      <b>生命周期</b>：<code>dsh-up.sh</code> 启动并开页 · <code>dsh-down.sh</code> 停止归零（配置保留）
+    </div>
+  </div>
+
+</div>`;
+</script>
+</body>
+</html>

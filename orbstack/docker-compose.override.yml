@@ -1,0 +1,4 @@
+services:
+  dsh:
+    cpus: "4.0"
+    mem_limit: 4g

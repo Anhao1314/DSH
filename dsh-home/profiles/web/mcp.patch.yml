@@ -1,0 +1,42 @@
+# Cold-start safe MCP overlay. Keep profiles/web/cordis.patch.yml as `[]`;
+# orbstack-entrypoint.sh passes this file through the top-level `--patch` flag.
+- insert:
+    - id: mcp-filesystem
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: filesystem
+        transport: stdio
+        command: /usr/local/bin/node
+        args:
+          - /root/.dsh/profiles/web/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js
+          - /workspace
+        cwd: /workspace
+        failOnStartupError: true
+
+    # GitHub MCP 按需开启（默认关闭）。
+    # 理由：官方包已 deprecated，且几十个工具的 schema 会随每一次模型请求重发，
+    # 是纯上下文开销；公共只读检索可用 web_fetch 直接代替。
+    # 需要时取消下面整段注释并重启容器即可恢复（无需其它改动）。
+    # - id: mcp-github
+    #   name: '@deepseek-ai/dsh-mcp-client'
+    #   config:
+    #     serverName: github
+    #     transport: stdio
+    #     command: /usr/local/bin/node
+    #     args:
+    #       - /root/.dsh/profiles/web/node_modules/@modelcontextprotocol/server-github/dist/index.js
+    #     cwd: /workspace
+    #     failOnStartupError: false
+
+    - id: mcp-world-store
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: world_store
+        transport: stdio
+        command: /usr/local/bin/node
+        args:
+          - /world-store/server.mjs
+        cwd: /workspace
+        env:
+          WORLD_STORE_PATH: /workspace/.world/world.jsonl
+        failOnStartupError: true

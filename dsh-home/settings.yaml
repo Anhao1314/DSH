@@ -1,0 +1,30 @@
+ui-onboarding:
+  welcomeNoticeVersion: 2026-08-13.1
+agent-presets:
+  default: team-lead
+agent-default-model:
+  provider: tokendance
+  model: deepseek-v4-pro-0813
+  reasoningEffort: high
+llm-pi-ai:
+  providers:
+    tokendance:
+      displayName: TokenDance
+      apiKeyEnv: TOKENDANCE_API_KEY
+      api: openai-completions
+      baseURL: https://tokendance.space/gateway/v1
+      reasoning: high
+      compat:
+        supportsDeveloperRole: false
+        thinkingFormat: deepseek
+      models:
+        - id: deepseek-v4-pro-0813
+          name: DeepSeek V4 Pro 0813
+          contextWindow: 1000000
+          reasoningEfforts:
+            off:
+            low: low
+            high: high
+            max: max
+ui-theme:
+  preference: system

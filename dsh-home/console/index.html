@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>团队工作台</title>
+<style>
+  :root{
+    --bg:#F5F5F7; --panel:rgba(250,250,252,.72); --panel-solid:#FFFFFF; --content:#FFFFFF;
+    --ink:#1D1D1F; --sub:#86868B; --sep:rgba(0,0,0,.08); --hover:rgba(0,0,0,.045); --sel:rgba(0,122,255,.12);
+    --accent:#007AFF; --assistant:#F2F2F4; --code:#EFEFF2; --ok:#34C759; --warn:#FF9500; --bad:#FF3B30;
+    --bubble-me:rgba(0,122,255,.12);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#1C1C1E; --panel:rgba(40,40,42,.72); --panel-solid:#2C2C2E; --content:#1C1C1E;
+      --ink:#F5F5F7; --sub:#98989F; --sep:rgba(255,255,255,.10); --hover:rgba(255,255,255,.06); --sel:rgba(10,132,255,.22);
+      --accent:#0A84FF; --assistant:#2C2C2E; --code:#3A3A3C; --ok:#30D158; --warn:#FF9F0A; --bad:#FF453A;
+      --bubble-me:rgba(10,132,255,.22);
+    }
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;color:var(--ink);background:var(--bg);font-size:14px;-webkit-font-smoothing:antialiased;overflow:hidden;}
+  .app{display:flex;flex-direction:column;height:100vh;}
+  /* unified toolbar — quiet */
+  .topbar{display:flex;align-items:center;gap:10px;padding:9px 14px;background:var(--panel);
+          backdrop-filter:saturate(180%) blur(20px);-webkit-backdrop-filter:saturate(180%) blur(20px);
+          border-bottom:.5px solid var(--sep);}
+  .brand{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:7px;}
+  .conn-dot{width:7px;height:7px;border-radius:50%;background:#c7c7cc;} .conn-dot.ok{background:var(--ok);} .conn-dot.bad{background:var(--bad);}
+  .conn-txt{font-size:12px;color:var(--bad);} .conn-txt.hidden{display:none;}
+  .spacer{flex:1;}
+  .iconbtn{font:inherit;font-size:13px;border:none;background:transparent;color:var(--sub);width:30px;height:28px;border-radius:7px;cursor:pointer;}
+  .iconbtn:hover{background:var(--hover);color:var(--ink);}
+  .menu-wrap{position:relative;}
+  .popover{position:absolute;right:0;top:32px;min-width:160px;background:var(--panel-solid);border:.5px solid var(--sep);
+           border-radius:10px;box-shadow:0 8px 28px rgba(0,0,0,.14);padding:5px;z-index:50;display:none;}
+  .popover.open{display:block;}
+  .popover button{display:block;width:100%;text-align:left;font:inherit;font-size:13px;border:none;background:transparent;color:var(--ink);padding:7px 9px;border-radius:7px;cursor:pointer;}
+  .popover button:hover{background:var(--hover);}
+  .body{flex:1;display:flex;min-height:0;}
+  .side{width:228px;flex:0 0 228px;background:var(--panel);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+        border-right:.5px solid var(--sep);padding:12px 10px;overflow-y:auto;}
+  .side .new{width:100%;margin-bottom:14px;padding:7px 0;}
+  .btn{font:inherit;font-size:13px;border:none;border-radius:8px;padding:6px 14px;cursor:pointer;background:var(--accent);color:#fff;font-weight:500;}
+  .group{font-size:11px;color:var(--sub);letter-spacing:.5px;margin:8px 8px 4px;display:flex;align-items:center;}
+  .group .caret{cursor:pointer;margin-right:4px;}
+  .row{border-radius:8px;padding:7px 10px;margin-bottom:1px;cursor:pointer;position:relative;}
+  .row:hover{background:var(--hover);} .row.active{background:var(--sel);}
+  .row .t{font-size:13px;font-weight:500;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:20px;}
+  .row .m{font-size:11px;color:var(--sub);margin-top:2px;display:flex;align-items:center;gap:6px;}
+  .row .del{position:absolute;right:5px;top:5px;width:21px;height:21px;border:none;background:transparent;color:var(--sub);border-radius:6px;cursor:pointer;font-size:11px;opacity:0;transition:opacity .15s;line-height:1;}
+  .row:hover .del{opacity:.65;} .row .del:hover{background:var(--bad);color:#fff;opacity:1;}
+  .mini{width:7px;height:7px;border-radius:50%;background:#c7c7cc;flex:0 0 7px;}
+  .mini.run{background:var(--warn);} .mini.ok{background:var(--ok);} .mini.bad{background:var(--bad);}
+  .collapsed{display:none;}
+  .center{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--content);}
+  .chead{display:flex;align-items:center;gap:10px;padding:9px 18px;border-bottom:.5px solid var(--sep);min-height:40px;}
+  .chead .title{font-size:13px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .spinner{width:12px;height:12px;border:1.5px solid var(--sep);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .stage{font-size:11.5px;color:var(--sub);}
+  .ghost-sm{font:inherit;font-size:12px;border:.5px solid var(--sep);background:var(--panel-solid);color:var(--ink);border-radius:7px;padding:4px 10px;cursor:pointer;}
+  .feed{flex:1;overflow-y:auto;padding:18px 0;}
+  .wrap{max-width:720px;margin:0 auto;padding:0 20px;}
+  .line{margin:0 0 15px;display:flex;flex-direction:column;}
+  .line.me{align-items:flex-end;}
+  .bubble{max-width:86%;padding:9px 13px;border-radius:14px;font-size:14px;line-height:1.6;word-break:break-word;}
+  .line.me .bubble{background:var(--bubble-me);border-bottom-right-radius:5px;}
+  .line.them .bubble{background:var(--assistant);border-bottom-left-radius:5px;}
+  .bubble p{margin:0 0 8px;} .bubble p:last-child{margin-bottom:0;}
+  .bubble pre{background:var(--code);border-radius:8px;padding:9px 11px;overflow:auto;font-size:12.5px;line-height:1.5;font-family:"SF Mono",ui-monospace,Menlo,monospace;}
+  .bubble code{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:12.5px;background:var(--code);padding:1px 5px;border-radius:5px;}
+  .bubble pre code{background:none;padding:0;}
+  .caret{display:inline-block;width:7px;height:14px;background:var(--accent);margin-left:2px;vertical-align:-2px;animation:blink 1s steps(1) infinite;border-radius:1px;}
+  @keyframes blink{50%{opacity:0;}}
+  .who{font-size:11px;color:var(--sub);margin:0 4px 4px;}
+  .deleg{display:flex;justify-content:center;margin:3px 0 15px;}
+  .deleg .pill{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--sub);background:var(--panel-solid);border:.5px solid var(--sep);border-radius:999px;padding:4px 12px;}
+  .deleg .role{font-weight:600;} .role.coder{color:var(--ok);} .role.reviewer{color:#8e5ec0;}
+  details.think{margin:0 0 11px;} details.think summary{font-size:11.5px;color:var(--sub);cursor:pointer;}
+  details.think .body{font-size:12px;color:var(--sub);margin-top:6px;line-height:1.55;white-space:pre-wrap;border-left:2px solid var(--sep);padding-left:10px;max-height:180px;overflow:auto;}
+  .empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--sub);gap:10px;text-align:center;padding:20px;}
+  .empty .big{font-size:17px;font-weight:600;color:var(--ink);}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:4px;}
+  .chip{font:inherit;font-size:12.5px;border:.5px solid var(--sep);background:var(--panel-solid);color:var(--ink);border-radius:999px;padding:6px 13px;cursor:pointer;}
+  .chip:hover{border-color:var(--accent);color:var(--accent);}
+  /* composer — material, borderless, mode merged in */
+  .composer{padding:10px 16px 14px;}
+  .composer .inner{max-width:720px;margin:0 auto;display:flex;gap:8px;align-items:flex-end;background:var(--panel-solid);
+       border:.5px solid var(--sep);border-radius:16px;padding:5px 6px 5px 8px;}
+  .composer .inner:focus-within{border-color:var(--accent);}
+  .modebtn{font:inherit;font-size:12px;color:var(--sub);background:transparent;border:none;border-radius:999px;padding:7px 9px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:5px;}
+  .modebtn:hover{background:var(--hover);}
+  textarea{flex:1;font:inherit;font-size:14px;line-height:1.5;border:none;background:transparent;color:var(--ink);padding:8px 2px;resize:none;max-height:160px;min-height:24px;}
+  textarea:focus{outline:none;}
+  .send{width:34px;height:34px;flex:0 0 34px;border-radius:50%;border:none;background:var(--accent);color:#fff;font-size:15px;cursor:pointer;}
+  .send:disabled{opacity:.4;}
+  .insp{width:236px;flex:0 0 236px;border-left:.5px solid var(--sep);background:var(--panel);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);padding:14px;overflow-y:auto;}
+  .insp.hidden{display:none;}
+  .seg{display:flex;background:var(--assistant);border-radius:8px;padding:2px;gap:2px;}
+  .segbtn{flex:1;font:inherit;font-size:12px;border:none;background:transparent;color:var(--sub);padding:5px 0;border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:5px;}
+  .segbtn.active{background:var(--panel-solid);color:var(--ink);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12);}
+  .badge{background:var(--accent);color:#fff;font-size:10px;min-width:15px;height:15px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;}
+  .token-pill{font-size:11.5px;color:var(--sub);border:.5px solid var(--sep);background:var(--panel-solid);border-radius:999px;padding:3px 9px;white-space:nowrap;}
+  .usage-section{margin-bottom:12px;}
+  .usage-label{font-size:11px;color:var(--sub);margin:0 0 7px;font-weight:600;}
+  .usage-total{font-size:23px;font-weight:650;letter-spacing:0;line-height:1;}
+  .usage-sub{font-size:11px;color:var(--sub);margin-top:5px;line-height:1.55;}
+  .usage-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px;}
+  .usage-item{background:var(--panel-solid);border:.5px solid var(--sep);border-radius:8px;padding:7px 8px;min-width:0;}
+  .usage-item .k{font-size:10.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .usage-item .v{font-size:13px;font-weight:600;margin-top:2px;white-space:nowrap;}
+  .usage-item.out .v{color:var(--accent);} .usage-item.cache .v{color:var(--ok);} .usage-item.write .v{color:var(--warn);}
+  .rolebar{display:flex;align-items:center;gap:7px;margin-bottom:7px;}
+  .rolebar .rn{width:48px;flex:0 0 48px;font-size:11.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .rolebar .track{flex:1;height:7px;background:var(--assistant);border-radius:999px;overflow:hidden;}
+  .rolebar .fill{height:100%;border-radius:999px;background:var(--accent);}
+  .rolebar .rv{width:56px;flex:0 0 56px;text-align:right;font-size:11px;color:var(--sub);}
+  .turnrow{margin-bottom:8px;}
+  .turnrow .tm{display:flex;align-items:center;justify-content:space-between;gap:7px;font-size:10.5px;color:var(--sub);margin-bottom:4px;}
+  .turnrow .bar{height:9px;border-radius:6px;overflow:hidden;background:var(--assistant);display:flex;}
+  .turnrow .tseg{height:100%;min-width:2px;}
+  .tseg.in{background:var(--accent);}.tseg.read{background:var(--ok);}.tseg.write{background:var(--warn);}.tseg.out{background:#8E5EC0;}
+  .usage-legend{display:flex;flex-wrap:wrap;gap:6px 10px;margin-top:7px;font-size:10px;color:var(--sub);}
+  .usage-legend span{display:inline-flex;align-items:center;gap:4px;}
+  .dot{width:6px;height:6px;border-radius:50%;display:inline-block;}
+  .usage-table{width:100%;border-collapse:collapse;font-size:11.5px;}
+  .usage-table th,.usage-table td{padding:4px 5px;border-bottom:.5px solid var(--sep);white-space:nowrap;}
+  .usage-table th{color:var(--sub);text-align:right;font-weight:500;}
+  .usage-table td{text-align:right;}
+  .usage-table th:first-child,.usage-table td:first-child{text-align:left;}
+  .empty-usage{font-size:11.5px;color:var(--sub);line-height:1.55;padding:7px 8px;border:.5px dashed var(--sep);border-radius:8px;}
+  .afile{display:flex;align-items:center;gap:8px;padding:8px 9px;border:.5px solid var(--sep);border-radius:9px;margin-bottom:7px;background:var(--panel-solid);}
+  .afile .meta{flex:1;min-width:0;}
+  .afile .nm{font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .afile .sz{font-size:10.5px;color:var(--sub);margin-top:1px;}
+  .afile button{font:inherit;font-size:11px;border:.5px solid var(--sep);background:transparent;color:var(--ink);border-radius:6px;padding:3px 8px;cursor:pointer;}
+  .afile button:hover{border-color:var(--accent);color:var(--accent);}
+  .step{display:flex;gap:11px;padding-bottom:15px;position:relative;}
+  .step:not(:last-child)::before{content:"";position:absolute;left:8px;top:20px;bottom:0;width:1px;background:var(--sep);}
+  .node{width:17px;height:17px;border-radius:50%;flex:0 0 17px;display:flex;align-items:center;justify-content:center;font-size:10px;background:var(--panel-solid);border:1.5px solid var(--sep);color:var(--sub);z-index:1;}
+  .node.done{background:var(--ok);border-color:var(--ok);color:#fff;} .node.run{border-color:var(--warn);border-top-color:transparent;animation:spin .8s linear infinite;} .node.fail{background:var(--bad);border-color:var(--bad);color:#fff;}
+  .step .s-t{font-size:13px;font-weight:600;} .step .s-m{font-size:11px;color:var(--sub);margin-top:2px;line-height:1.5;}
+  .tag{display:inline-block;font-size:10.5px;border-radius:6px;padding:1px 7px;margin-top:4px;background:var(--sel);color:var(--accent);}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.22);display:none;align-items:center;justify-content:center;z-index:100;backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);}
+  .overlay.open{display:flex;}
+  .sheet{width:340px;max-width:86vw;background:var(--panel-solid);border:.5px solid var(--sep);border-radius:14px;padding:18px;box-shadow:0 16px 48px rgba(0,0,0,.22);}
+  .sheet h4{margin:0 0 6px;font-size:14px;font-weight:600;line-height:1.4;word-break:break-word;}
+  .sheet p{margin:0 0 16px;font-size:12.5px;color:var(--sub);line-height:1.55;}
+  .sheet .acts{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;}
+  .btn-ghost{font:inherit;font-size:12.5px;border:.5px solid var(--sep);background:transparent;color:var(--ink);border-radius:8px;padding:7px 13px;cursor:pointer;}
+  .btn-ghost:hover{background:var(--hover);}
+  .btn-danger{font:inherit;font-size:12.5px;border:none;background:var(--bad);color:#fff;border-radius:8px;padding:7px 13px;cursor:pointer;font-weight:500;}
+  .btn-danger:disabled{opacity:.5;}
+  @media (max-width:860px){ .side{width:196px;flex-basis:196px;} .insp{display:none;} }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <span class="brand">🐋 团队工作台</span>
+    <span class="conn-dot" id="connDot"></span><span class="conn-txt hidden" id="connTxt">已断开</span>
+    <span class="spacer"></span>
+    <button class="iconbtn" id="btnInsp" title="团队流程" type="button">☰</button>
+    <span class="menu-wrap">
+      <button class="iconbtn" id="btnMore" title="更多" type="button">⋯</button>
+      <div class="popover" id="moreMenu">
+                <button id="mStats" type="button">Token 用量总览</button>
+        <button id="mNative" type="button">在浏览器打开原生界面</button>
+        <button id="mReload" type="button">重新载入页面</button>
+      </div>
+    </span>
+  </div>
+
+  <div class="body">
+    <nav class="side">
+      <button class="btn new" id="btnNew" type="button">＋ 新建任务</button>
+      <div id="taskList"></div>
+    </nav>
+
+    <section class="center">
+      <div class="chead">
+          <span class="title" id="cTitle">未选择任务</span>
+          <span class="stage" id="cStage"></span>
+          <span class="token-pill" id="cTokens" style="display:none;" title="当前对话总 token">-- tokens</span>
+        <span id="cSpin" class="spinner" style="display:none;"></span>
+        <button class="ghost-sm" id="btnStop" style="display:none;" type="button">停止</button>
+      </div>
+      <div class="feed" id="feed">
+        <div class="empty" id="empty">
+          <div class="big">开始一个任务</div>
+          <div style="font-size:13px;">Lead 先判定 L1/L2/L3：简单直答，中等派 Coder，困难才走 Coder+Reviewer 全团队</div>
+          <div class="chips">
+            <button class="chip" data-ex="写一个二分查找函数并配自测，再独立复核边界" type="button">实现+复核示例</button>
+            <button class="chip" data-ex="解释这段代码并指出潜在问题" type="button">代码审查示例</button>
+          </div>
+        </div>
+        <div class="wrap" id="msgs" style="display:none;"></div>
+      </div>
+      <div class="composer">
+        <div class="inner">
+          <div class="menu-wrap">
+            <button class="modebtn" id="modeBtn" type="button"><span id="modeLabel">自动分档</span> ▾</button>
+            <div class="popover" id="modeMenu">
+              <button data-mode="auto" type="button">自动分档（默认）</button>
+              <button data-mode="l1" type="button">强制 L1 · 简单直答</button>
+              <button data-mode="l2" type="button">强制 L2 · 仅 Coder</button>
+              <button data-mode="l3" type="button">强制 L3 · 全团队复核</button>
+            </div>
+          </div>
+          <textarea id="input" rows="1" placeholder="描述任务，Enter 发送 · Shift+Enter 换行"></textarea>
+          <button class="send" id="btnSend" title="发送" type="button">↑</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="insp" id="insp">
+      <div class="seg" id="inspTabs">
+        <button class="segbtn active" data-tab="flow" type="button">流程</button>
+        <button class="segbtn" data-tab="files" type="button">产物<span class="badge" id="artBadge" style="display:none;">0</span></button>
+        <button class="segbtn" data-tab="usage" type="button">用量</button>
+      </div>
+      <div id="pane-flow">
+        <div id="timeline"><div style="font-size:12px;color:var(--sub);margin-top:10px;">选择任务后显示 Lead / Coder / Reviewer 进度。</div></div>
+      </div>
+      <div id="pane-files" style="display:none;margin-top:10px;">
+        <div id="artifacts"><div style="font-size:12px;color:var(--sub);">该任务还没有产物文件。让 Coder 把成品写入产物目录后会出现在这里。</div></div>
+      </div>
+      <div id="pane-usage" style="display:none;margin-top:10px;"><div id="usagePane"></div></div>
+    </aside>
+  </div>
+</div>
+
+<div class="overlay" id="delModal">
+  <div class="sheet">
+    <h4 id="delTitle">删除该对话？</h4>
+    <p id="delWarn"></p>
+    <div class="acts">
+      <button class="btn-ghost" id="delCancel" type="button">取消</button>
+      <button class="btn-ghost" id="delArchive" type="button">仅从列表移除</button>
+      <button class="btn-danger" id="delPurge" type="button">彻底删除</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="pvModal">
+  <div class="sheet" style="width:640px;max-width:92vw;">
+    <h4 id="pvName" style="word-break:break-all;"></h4>
+    <pre id="pvBody" style="margin:0 0 14px;max-height:60vh;overflow:auto;background:var(--assistant);border:.5px solid var(--sep);border-radius:8px;padding:10px;font-size:11.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;"></pre>
+    <div class="acts" style="display:flex;justify-content:flex-end;">
+      <button class="btn-ghost" id="pvClose" type="button">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="statsModal">
+  <div class="sheet" style="width:560px;max-width:92vw;">
+    <h4>Token 用量与档位统计</h4>
+    <p style="margin-bottom:10px;">统计来自已落盘的 provider usage。总量 = 未缓存输入 + 缓存读取 + 缓存写入 + 输出；reasoning 已包含在输出内，不会重复计算。</p>
+    <div id="statsBody" style="max-height:62vh;overflow:auto;"></div>
+    <div class="acts" style="display:flex;justify-content:flex-end;margin-top:12px;">
+      <button class="btn-ghost" id="statsClose" type="button">关闭</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var token = new URLSearchParams(location.search).get('token') || '';
+  var $ = function(id){return document.getElementById(id);};
+  var authed = token ? fetch('/?token='+encodeURIComponent(token),{redirect:'manual'}).catch(function(){}) : Promise.resolve();
+
+  var TPL = {
+    auto:'',
+    l1:'本任务已确定为 L1（简单）：请直接回答，不要委派任何子角色。任务：\n',
+    l2:'本任务已确定为 L2（中等）：仅调用一次 delegate_coder 实现并自测、由你核对，不要调用 delegate_reviewer。任务：\n',
+    l3:'本任务已确定为 L3（困难）：delegate_coder 实现后必须由 delegate_reviewer 独立只读复核，发现问题回退修复并复核到通过。任务：\n'
+  };
+  var MODE_LABEL={auto:'自动分档',l1:'强制 L1 简单',l2:'强制 L2 中等',l3:'强制 L3 困难'};
+  var ROLE={delegate_coder:{name:'Coder',cls:'coder'},delegate_reviewer:{name:'Reviewer',cls:'reviewer'}};
+  var TRANSITION=/(让|委托|交由|交给|delegate|coder|reviewer|复核|审查|复审|实现|接下来|现在|第二步|下一步|先让|再让)/i;
+
+  function uuid(){try{return crypto.randomUUID();}catch(e){return Date.now()+'-'+Math.random().toString(16).slice(2);}}
+  function rpc(endpoint,argName,request){
+    var msg={type:'client-request',rpcId:uuid(),method:endpoint,payload:{args:{}}}; msg.payload.args[argName]=request;
+    return fetch('/api/'+endpoint,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(msg)})
+      .then(function(r){return r.json();}).then(function(env){var res=env.result;
+        if(res&&res.ok)return res.value; throw new Error(res&&res.error?res.error.message:'rpc failed');});
+  }
+  function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function hhmm(ts){var d=new Date(ts),p=function(n){return (n<10?'0':'')+n;};return p(d.getHours())+':'+p(d.getMinutes());}
+  function md(text){
+    var parts=String(text).split(/```/),html='';
+    parts.forEach(function(seg,i){
+      if(i%2===1){html+='<pre><code>'+esc(seg.replace(/^[a-zA-Z]*\n/,''))+'</code></pre>';}
+      else{var t=esc(seg).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>');html+='<p>'+t+'</p>';}
+    });return html;
+  }
+
+  // ---- multiplexed Remote-stream WebSocket (session/follow) ----
+  function Mux(){
+    var ws=null,queued=[],streams={},tries=0,dead=false;
+    function connect(){
+      var url=(location.protocol==='https:'?'wss':'ws')+'://'+location.host+'/api/remote.mux';
+      ws=new WebSocket(url);
+      ws.onopen=function(){tries=0;queued.forEach(function(m){ws.send(JSON.stringify(m));});queued=[];};
+      ws.onmessage=function(e){var f;try{f=JSON.parse(e.data);}catch(x){return;}
+        var h=streams[f.streamId]; if(h) h(f);
+      };
+      ws.onclose=function(){if(dead)return;setTimeout(connect,Math.min(4000,500*(++tries)));};
+      ws.onerror=function(){try{ws.close();}catch(e){}};
+    }
+    this.open=function(endpoint,payload,handler){
+      var streamId=uuid();streams[streamId]=handler;
+      var msg={type:'open',streamId:streamId,endpoint:endpoint,payload:payload};
+      if(ws&&ws.readyState===1)ws.send(JSON.stringify(msg));else{if(!ws)connect();queued.push(msg);}
+      return function(){var m={type:'cancel',streamId:streamId};if(ws&&ws.readyState===1)ws.send(JSON.stringify(m));
+        queued=queued.filter(function(q){return q.streamId!==streamId;});delete streams[streamId];};
+    };
+  }
+  var mux=new Mux();
+
+  var state={items:[],byId:{},selected:null,mode:'auto',records:[],live:'',followCancel:null,wsLive:false,olderOpen:false,inspUserHidden:false,inspTab:'flow',artifacts:[],
+    archived:new Set(JSON.parse(localStorage.getItem('dsh_archived')||'[]'))};
+  function saveArchived(){localStorage.setItem('dsh_archived',JSON.stringify([...state.archived]));}
+
+  function classify(it){
+    var v=(it.projections&&it.projections.values)||{};
+    var eff=v.modelSelection&&v.modelSelection.lastUsed&&v.modelSelection.lastUsed.reasoningEffort;
+    var kind=eff==='low'?'coder':eff==='high'?'reviewer':'sub';
+    var outline=v.turnOutline||[],txt=JSON.stringify(outline);
+    var verdict=/\bPASS\b/i.test(txt)?'pass':/\bFAIL\b/i.test(txt)?'fail':'';
+    var firstPrompt=outline[0]&&outline[0].prompt||'';
+    var meaningful=(it.projections&&it.projections.asOfSeq>4)&&!/reply with exactly one word/i.test(firstPrompt);
+    return {title:v.title||firstPrompt||it.sessionId,kind:kind,label:(v.subagent&&v.subagent.label)||'',verdict:verdict,meaningful:meaningful,seq:it.projections&&it.projections.asOfSeq};
+  }
+
+  function renderSide(){
+    var roots=state.items.filter(function(x){return !x.parentSessionId&&!state.archived.has(x.sessionId)&&classify(x).meaningful;})
+      .sort(function(a,b){return b.updatedAt-a.updatedAt;});
+    var recent=roots.slice(0,8),older=roots.slice(8);
+    var row=function(it){var c=classify(it),cls=it.running?'run':c.verdict==='pass'?'ok':c.verdict==='fail'?'bad':'';
+      return '<div class="row'+(state.selected===it.sessionId?' active':'')+'" data-sid="'+it.sessionId+'"><div class="t">'+esc(c.title)+'</div>'
+        +'<div class="m"><span class="mini '+cls+'"></span><span>'+(it.running?'进行中':c.verdict==='pass'?'已通过':c.verdict==='fail'?'有问题':'完成')+' · '+hhmm(it.updatedAt)+'</span></div>'
+        +'<button class="del" data-del="'+it.sessionId+'" title="删除该对话" type="button">✕</button></div>';};
+    var html='<div class="group">最近</div>'+recent.map(row).join('');
+    if(older.length){html+='<div class="group"><span class="caret" id="olderCaret">'+(state.olderOpen?'▾':'▸')+'</span>更早 · '+older.length+'</div>'
+      +'<div id="olderWrap" class="'+(state.olderOpen?'':'collapsed')+'">'+older.map(row).join('')+'</div>';}
+    if(!roots.length)html='<div style="font-size:12px;color:var(--sub);padding:6px 8px;">暂无任务</div>';
+    $('taskList').innerHTML=html;
+    Array.prototype.forEach.call($('taskList').querySelectorAll('.row'),function(el){el.addEventListener('click',function(){select(el.getAttribute('data-sid'));});});
+    Array.prototype.forEach.call($('taskList').querySelectorAll('[data-del]'),function(b){b.addEventListener('click',function(e){e.stopPropagation();deleteSession(b.getAttribute('data-del'));});});
+    var oc=$('olderCaret');if(oc)oc.addEventListener('click',function(e){e.stopPropagation();state.olderOpen=!state.olderOpen;renderSide();});
+  }
+
+  var pendingDel=null;
+  function afterRemoved(sid){
+    if(state.selected===sid){if(state.followCancel){state.followCancel();state.followCancel=null;}state.selected=null;state.records=[];state.live='';renderMessages();}
+    poll();
+  }
+  function deleteSession(sid){
+    var it=state.byId[sid],c=it?classify(it):{title:sid};
+    pendingDel={sid:sid,kids:childrenOf(sid).map(function(x){return x.sessionId;})};
+    $('delTitle').textContent='删除「'+(c.title||'').slice(0,30)+'」？';
+    $('delWarn').textContent=(it&&it.running?'任务仍在运行，将先停止。':'')
+      +'「仅从列表移除」是隐藏、可恢复；「彻底删除」会抹掉会话文件并释放磁盘，不可恢复。';
+    $('delPurge').disabled=false;$('delPurge').textContent='彻底删除';
+    $('delModal').classList.add('open');
+  }
+  function closeDel(){$('delModal').classList.remove('open');pendingDel=null;}
+  function cancelIfRunning(sid){var it=state.byId[sid];return (it&&it.running)?rpc('session/cancel','request',{sessionId:sid}).catch(function(){}):Promise.resolve();}
+  function archiveOnly(){
+    if(!pendingDel)return;var sid=pendingDel.sid;
+    cancelIfRunning(sid).then(function(){return rpc('workspace/archiveSession','request',{sessionId:sid});})
+      .then(function(){state.archived.add(sid);saveArchived();afterRemoved(sid);closeDel();})
+      .catch(function(e){alert('移除失败：'+e.message);});
+  }
+  function purgeHard(){
+    if(!pendingDel)return;var sid=pendingDel.sid,kids=pendingDel.kids,btn=$('delPurge');btn.disabled=true;btn.textContent='删除中…';
+    cancelIfRunning(sid)
+      .then(function(){return rpc('workspace/archiveSession','request',{sessionId:sid}).catch(function(){});})
+      .then(function(){return fetch('/console-api/purge',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({sessionId:sid,childIds:kids})});})
+      .then(function(r){return r.json();})
+      .then(function(j){if(!j.ok)throw new Error(j.error||'purge failed');
+        [sid].concat(kids).forEach(function(id){state.archived.add(id);});saveArchived();
+        afterRemoved(sid);closeDel();})
+      .catch(function(e){alert('彻底删除失败：'+e.message);btn.disabled=false;btn.textContent='彻底删除';});
+  }
+
+  function childrenOf(sid){return state.items.filter(function(x){return x.parentSessionId===sid;}).sort(function(a,b){return a.updatedAt-b.updatedAt;});}
+
+  function renderTimeline(){
+    var sid=state.selected;var box=$('timeline');
+    if(!sid){box.innerHTML='<div style="font-size:12px;color:var(--sub);">Lead 尚未委派。</div>';return;}
+    var kids=childrenOf(sid);
+    if(!kids.length){box.innerHTML='<div style="font-size:12px;color:var(--sub);">Lead 尚未委派，等待中…</div>';return;}
+    box.innerHTML=kids.map(function(it){var c=classify(it),node=it.running?'run':c.verdict==='fail'?'fail':c.verdict==='pass'?'done':'';
+      var name=c.kind==='coder'?'Coder':c.kind==='reviewer'?'Reviewer':'子任务';
+      return '<div class="step"><div class="node '+node+'">'+(node==='done'?'✓':node==='fail'?'!':'')+'</div><div>'
+        +'<div class="s-t">'+esc(name)+(it.running?' 进行中…':'')+'</div><div class="s-m">'+esc(c.label||'(无标签)')+'</div>'
+        +(c.verdict?'<span class="tag">'+c.verdict.toUpperCase()+'</span>':'')+'</div></div>';}).join('');
+  }
+
+  // Subtraction: hide short Lead text that merely announces the delegation right after it.
+  function visibleParts(parts){
+    return parts.filter(function(p,i){
+      if(p.type==='text'&&p.text&&p.text.trim().length<=80&&TRANSITION.test(p.text)){
+        for(var j=i+1;j<parts.length;j++){if(parts[j].type==='text')break;if(parts[j].type==='tool-call'&&ROLE[parts[j].name])return false;}
+      }
+      return true;
+    });
+  }
+
+  function renderMessages(){
+    var out=[];
+    state.records.forEach(function(r){
+      var e=r.event;if(!e)return;
+      if(e.type==='user/message'&&e.data.source&&e.data.source.kind==='user'){
+        var ut=(e.data.content||[]).filter(function(p){return p.type==='text';}).map(function(p){return p.text;}).join('\n');
+        if(ut.trim())out.push('<div class="line me"><div class="bubble">'+md(ut)+'</div></div>');
+      }else if(e.type==='assistant/message'){
+        visibleParts(e.data.message.content||[]).forEach(function(p){
+          if(p.type==='reasoning'&&p.text&&p.text.trim())out.push('<details class="think"><summary>思考过程</summary><div class="body">'+esc(p.text)+'</div></details>');
+          else if(p.type==='tool-call'){var role=ROLE[p.name],desc='';try{desc=JSON.parse(p.arguments||'{}').description||'';}catch(x){}
+            if(role)out.push('<div class="deleg"><span class="pill">委派 → <span class="role '+role.cls+'">'+role.name+'</span> '+esc(desc)+'</span></div>');
+            else out.push('<div class="deleg"><span class="pill">工具 · '+esc(p.name)+'</span></div>');}
+          else if(p.type==='text'&&p.text&&p.text.trim())out.push('<div class="line them"><div class="who">Lead</div><div class="bubble">'+md(p.text)+'</div></div>');
+        });
+      }
+    });
+    if(state.live)out.push('<div class="line them"><div class="who">Lead</div><div class="bubble">'+md(state.live)+'<span class="caret"></span></div></div>');
+    var feed=$('feed'),atBottom=feed.scrollTop+feed.clientHeight>=feed.scrollHeight-40;
+    if(out.length){$('empty').style.display='none';$('msgs').style.display='block';$('msgs').innerHTML=out.join('');}
+    else{$('empty').style.display='flex';$('msgs').style.display='none';}
+    if(atBottom)feed.scrollTop=feed.scrollHeight;
+    updateTokenPill();
+    if(state.inspTab==='usage')renderUsage();
+  }
+
+  function followSession(sid){
+    if(state.followCancel){state.followCancel();state.followCancel=null;}
+    state.records=[];state.live='';state.wsLive=false;renderMessages();
+    state.followCancel=mux.open('session/follow',{args:{request:{address:{kind:'session',sessionId:sid},assistantStream:true,maxMessages:200}}},function(frame){
+      if(frame.type==='error'){state.wsLive=false;return;}
+      if(frame.type==='end'){return;}
+      var v=frame.value;if(!v)return;
+      if(v.type==='snapshot'){state.records=v.records||[];state.wsLive=true;renderMessages();}
+      else if(v.type==='event'){state.records.push({type:'event',event:v.event});renderMessages();}
+      else if(v.type==='assistant-stream'){var f=v.frame;
+        if(f.type==='chunk'&&f.chunk&&f.chunk.type==='text-delta'){state.live+=f.chunk.text;renderMessages();}
+        else if(f.type==='end'){state.live='';renderMessages();}
+      }
+    });
+  }
+
+  // Fallback: if WS streaming never worked, reconcile via session/page.
+  function pageFallback(sid){
+    var it=state.byId[sid];if(!it)return;var seq=it.projections&&it.projections.asOfSeq;if(!seq)return;
+    rpc('session/page','request',{address:{kind:'session',sessionId:sid},throughSeq:seq,maxMessages:200})
+      .then(function(pg){if(!state.wsLive){state.records=pg.records||[];renderMessages();}}).catch(function(){});
+  }
+
+  function autoInspector(running,kidCount,fileCount){
+    var insp=$('insp');
+    if(state.inspUserHidden)return;
+    var show=running||kidCount>0||fileCount>0;
+    insp.classList.toggle('hidden',!show);
+  }
+
+  function refreshHeader(){
+    var sid=state.selected,it=state.byId[sid];
+    if(!it)return;
+    $('cTitle').textContent=classify(it).title;
+    var kids=childrenOf(sid);
+    var stage='';
+    if(it.running){var runKid=kids.filter(function(k){return k.running;})[0];
+      stage=runKid?(classify(runKid).kind==='coder'?'Coder 实现中…':classify(runKid).kind==='reviewer'?'Reviewer 复核中…':'子任务进行中…'):'Lead 思考中…';}
+    $('cStage').textContent=stage;
+    $('cSpin').style.display=it.running?'block':'none';
+    $('btnStop').style.display=it.running?'block':'none';
+    updateTokenPill();
+    autoInspector(!!it.running,kids.length,(state.artifacts||[]).length);
+  }
+
+  function setInspTab(tab){state.inspTab=tab;
+    Array.prototype.forEach.call($('inspTabs').querySelectorAll('.segbtn'),function(b){b.classList.toggle('active',b.getAttribute('data-tab')===tab);});
+    $('pane-flow').style.display=tab==='flow'?'block':'none';$('pane-files').style.display=tab==='files'?'block':'none';
+    $('pane-usage').style.display=tab==='usage'?'block':'none';
+    if(tab==='usage')renderUsage();
+  }
+  function select(sid,focus){state.selected=sid;state.inspUserHidden=false;state.artifacts=[];setInspTab('flow');renderSide();updateTokenPill();followSession(sid);loadArtifacts(sid);if(focus)$('input').focus();}
+
+  function poll(){
+    rpc('session/list','_request',{}).then(function(v){
+      state.items=v.items||[];state.byId={};state.items.forEach(function(x){state.byId[x.sessionId]=x;});
+      $('connDot').className='conn-dot ok';$('connTxt').classList.add('hidden');
+      renderSide();
+      if(!state.selected){var first=state.items.filter(function(x){return !x.parentSessionId&&!state.archived.has(x.sessionId)&&classify(x).meaningful;}).sort(function(a,b){return b.updatedAt-a.updatedAt;})[0];
+        if(first)select(first.sessionId);}
+      if(state.selected){refreshHeader();renderTimeline();if(!state.wsLive)pageFallback(state.selected);loadArtifacts(state.selected);}
+    }).catch(function(){$('connDot').className='conn-dot bad';$('connTxt').classList.remove('hidden');});
+  }
+
+  function send(){
+    var raw=$('input').value.trim();if(!raw)return;
+    $('input').value='';autosize();
+    var go=function(sid){
+      var body=TPL[state.mode]+raw;
+      if(state.mode!=='l1')body+='\n\n[产物目录] 请把最终交付文件写入目录 /root/.dsh/artifacts/'+sid+'/ （不存在则 mkdir -p 创建），并在最终结论里列出写入的文件路径。';
+      return rpc('session/prompt','request',{requestId:uuid(),sessionId:sid,mode:'queue',content:[{type:'text',text:body}]}).then(poll);
+    };
+    var p=(state.selected&&state.byId[state.selected])?go(state.selected):
+      rpc('session/create','request',{agentPreset:'team-lead'}).then(function(v){select(v.sessionId);return go(v.sessionId);});
+    p.catch(function(e){alert('发送失败：'+e.message);});
+  }
+
+  function fmtSize(n){if(n<1024)return n+' B';if(n<1048576)return (n/1024).toFixed(1)+' KB';return (n/1048576).toFixed(2)+' MB';}
+  function nativeArtifactURL(route,sid,path){
+    if(!window.dshNativeArtifacts)return null;
+    return 'dsh-artifact://'+route+'?session='+encodeURIComponent(sid)
+      +(path?'&path='+encodeURIComponent(path):'');
+  }
+  function loadArtifacts(sid){
+    var native=nativeArtifactURL('list',sid);
+    if(native)return fetch(native).then(function(r){
+      if(!r.ok)throw new Error('产物服务 HTTP '+r.status);return r.json();
+    }).then(function(j){
+      var files=(j&&j.files)||[];state.artifacts=files;renderArtifacts(sid);return files;
+    }).catch(function(e){
+      state.artifacts=[];var box=$('artifacts'),badge=$('artBadge');
+      badge.style.display='none';
+      box.innerHTML='<div style="font-size:12px;color:var(--bad);">读取产物失败：'+esc(e&&e.message?e.message:e)+'</div>';
+      return [];
+    });
+    return fetch('/console-api/artifacts?session='+encodeURIComponent(sid)).then(function(r){return r.json();}).then(function(j){
+      var files=(j&&j.files)||[];state.artifacts=files;renderArtifacts(sid);return files;
+    }).catch(function(){state.artifacts=[];renderArtifacts(sid);return [];});
+  }
+  function renderArtifacts(sid){
+    var box=$('artifacts'),badge=$('artBadge'),files=state.artifacts||[];
+    badge.style.display=files.length?'inline-flex':'none';badge.textContent=files.length;
+    if(!files.length){box.innerHTML='<div style="font-size:12px;color:var(--sub);">该任务还没有产物文件。让 Coder 把成品写入产物目录后会出现在这里。</div>';return;}
+    box.innerHTML=files.map(function(f,i){
+      return '<div class="afile"><div class="meta"><div class="nm">'+esc(f.rel)+'</div><div class="sz">'+fmtSize(f.size)+'</div></div>'
+        +'<button data-i="'+i+'" data-act="view" type="button">预览</button><button data-i="'+i+'" data-act="dl" type="button">下载</button></div>';
+    }).join('');
+    Array.prototype.forEach.call(box.querySelectorAll('button'),function(b){b.addEventListener('click',function(){
+      var f=files[Number(b.getAttribute('data-i'))],q='session='+encodeURIComponent(sid)+'&path='+encodeURIComponent(f.rel);
+      if(b.getAttribute('data-act')==='dl'){
+        var reveal=nativeArtifactURL('reveal',sid,f.rel);
+        if(reveal){fetch(reveal).catch(function(e){alert('打开产物位置失败：'+e.message);});return;}
+        window.open('/console-api/artifact?'+q,'_blank');
+      }
+      else previewArtifact(sid,f);
+    });});
+  }
+  function previewArtifact(sid,f){
+    var q='session='+encodeURIComponent(sid)+'&path='+encodeURIComponent(f.rel)+'&inline=1';
+    var textish=/\.(txt|md|json|js|ts|py|html?|css|csv|log|ya?ml|sh)$/i.test(f.rel);
+    var native=nativeArtifactURL('read',sid,f.rel);
+    if(!textish){var openUrl=nativeArtifactURL('open',sid,f.rel);
+      if(openUrl){fetch(openUrl).catch(function(e){alert('打开产物失败：'+e.message);});return;}
+      window.open('/console-api/artifact?'+q,'_blank');return;
+    }
+    if(native){fetch(native).then(function(r){
+      if(!r.ok)throw new Error('产物服务 HTTP '+r.status);return r.text();
+    }).then(function(t){
+      $('pvName').textContent=f.rel;$('pvBody').textContent=t;$('pvModal').classList.add('open');
+    }).catch(function(e){alert('预览失败：'+e.message);});return;}
+    fetch('/console-api/artifact?'+q).then(function(r){return r.text();}).then(function(t){
+      $('pvName').textContent=f.rel;$('pvBody').textContent=t;$('pvModal').classList.add('open');
+    }).catch(function(e){alert('预览失败：'+e.message);});
+  }
+
+  // ---- cost / tier stats ----
+  function effortOf(it){try{return it.projections.values.modelSelection.lastUsed.reasoningEffort||'';}catch(e){return '';}}
+  function usageOf(it){var u=(it&&it.projections&&it.projections.values&&it.projections.values.tokenUsage)||{};
+    var uncached=u.uncachedInputTokens||0,read=u.cacheReadTokens||0,write=u.cacheWriteTokens||0,out=u.outputTokens||0;
+    var inTok=uncached+read+write;
+    return {uncached:uncached,cacheRead:read,cacheWrite:write,out:out,in:inTok,total:inTok+out};}
+  function statsOf(it){return (it&&it.projections&&it.projections.values&&it.projections.values.sessionStats)||{};}
+  function tierOf(root){var kids=childrenOf(root.sessionId);
+    if(!kids.length)return 'L1';
+    if(kids.some(function(k){return effortOf(k)==='high';}))return 'L3';
+    return 'L2';}
+  function convIds(root){return [root.sessionId].concat(childrenOf(root.sessionId).map(function(k){return k.sessionId;}));}
+  function convUsage(root){var acc={uncached:0,cacheRead:0,cacheWrite:0,out:0,in:0,total:0,llmMs:0,steps:0,kids:0};
+    var ids=convIds(root);acc.kids=ids.length-1;
+    ids.forEach(function(id){var it=state.byId[id];if(!it)return;var u=usageOf(it);
+      acc.uncached+=u.uncached;acc.cacheRead+=u.cacheRead;acc.cacheWrite+=u.cacheWrite;acc.out+=u.out;acc.in+=u.in;acc.total+=u.total;
+      var s=statsOf(it);acc.llmMs+=s.llmMs||0;acc.steps+=s.steps||0;});
+    return acc;}
+  function fmtTok(n){n=Math.round(n);if(n>=1e6)return (n/1e6).toFixed(2)+'M';if(n>=1e3)return (n/1e3).toFixed(1)+'k';return ''+n;}
+  function pct(n,d){return d>0?Math.round(n/d*100):0;}
+  function usageItem(cls,k,v){return '<div class="usage-item'+(cls?' '+cls:'')+'"><div class="k">'+k+'</div><div class="v">'+v+'</div></div>';}
+  function updateTokenPill(){
+    var el=$('cTokens');if(!el)return;
+    var root=state.selected&&state.byId[state.selected];
+    if(!root){el.style.display='none';return;}
+    var u=convUsage(root);
+    if(u.total<=0){el.style.display='none';return;}
+    el.style.display='inline-block';
+    el.textContent=fmtTok(u.total)+' tokens';
+    el.title='当前对话累计 '+u.total.toLocaleString()+' tokens：未缓存输入 '+u.uncached.toLocaleString()
+      +' · 缓存读 '+u.cacheRead.toLocaleString()+' · 缓存写 '+u.cacheWrite.toLocaleString()+' · 输出 '+u.out.toLocaleString();
+  }
+  function roleUsage(root){
+    var list=[{name:'Lead',color:'var(--accent)',u:usageOf(state.byId[root.sessionId]||root)}];
+    childrenOf(root.sessionId).forEach(function(k){var c=classify(k);
+      list.push({name:c.kind==='coder'?'Coder':c.kind==='reviewer'?'Reviewer':'子任务',
+        color:c.kind==='coder'?'var(--ok)':c.kind==='reviewer'?'#8E5EC0':'var(--warn)',u:usageOf(k)});});
+    var rank={'Lead':0,'Coder':1,'Reviewer':2,'子任务':3};
+    return list.sort(function(a,b){return rank[a.name]-rank[b.name];});
+  }
+  function turnUsageList(){
+    var byTurn={};
+    (state.records||[]).forEach(function(r){var e=r&&r.event;if(!e||e.type!=='assistant/message')return;
+      var d=e.data||{},u=d.usage;if(!u)return;
+      var t=d.turn||0,s=d.step||0;
+      (byTurn[t]||(byTurn[t]={turn:t,steps:{}})).steps[s]={uncached:u.inputTokens||0,cacheRead:u.cacheReadTokens||0,cacheWrite:u.cacheWriteTokens||0,out:u.outputTokens||0};});
+    return Object.keys(byTurn).map(function(k){var t=byTurn[k],acc={turn:t.turn,uncached:0,cacheRead:0,cacheWrite:0,out:0,in:0,total:0};
+      Object.keys(t.steps).forEach(function(s){var u=t.steps[s];acc.uncached+=u.uncached;acc.cacheRead+=u.cacheRead;acc.cacheWrite+=u.cacheWrite;acc.out+=u.out;});
+      acc.in=acc.uncached+acc.cacheRead+acc.cacheWrite;acc.total=acc.in+acc.out;return acc;})
+      .sort(function(a,b){return a.turn-b.turn;});
+  }
+  function renderUsage(){
+    var box=$('usagePane');if(!box)return;
+    var root=state.selected&&state.byId[state.selected];
+    if(!root){box.innerHTML='<div class="empty-usage">选择一个任务后显示 token 用量。</div>';return;}
+    var u=convUsage(root),roles=roleUsage(root),turns=turnUsageList();
+    var legend='<div class="usage-legend">'
+      +'<span><i class="dot" style="background:var(--accent);"></i>未缓存输入</span>'
+      +'<span><i class="dot" style="background:var(--ok);"></i>缓存读取</span>'
+      +'<span><i class="dot" style="background:var(--warn);"></i>缓存写入</span>'
+      +'<span><i class="dot" style="background:#8E5EC0;"></i>输出</span></div>';
+    var head='<div class="usage-section"><div class="usage-label">当前对话总量 · Lead + 子角色</div>'
+      +'<div class="usage-total">'+fmtTok(u.total)+' <span style="font-size:11px;font-weight:500;color:var(--sub);">tokens</span></div>'
+      +'<div class="usage-sub">'+u.steps+' 步模型调用 · 子角色 '+u.kids+' 个 · 缓存命中率 '+pct(u.cacheRead,u.in)+'%'
+      +(u.steps>0?' · 平均 '+fmtTok(u.total/u.steps)+' tokens/步':'')+'<br>'
+      +'总量 = 未缓存输入 + 缓存读 + 缓存写 + 输出；reasoning 已含在输出内。</div>'
+      +'<div class="usage-grid">'+usageItem('','未缓存输入',fmtTok(u.uncached))+usageItem('cache','缓存读取',fmtTok(u.cacheRead))
+      +usageItem('write','缓存写入',fmtTok(u.cacheWrite))+usageItem('out','输出',fmtTok(u.out))+'</div>'+legend+'</div>';
+    var maxRole=roles.reduce(function(m,r){return Math.max(m,r.u.total);},1);
+    var roleHtml=roles.map(function(r){return '<div class="rolebar"><div class="rn">'+esc(r.name)+'</div>'
+      +'<div class="track"><div class="fill" style="width:'+(r.u.total>0?Math.max(3,Math.round(r.u.total/maxRole*100)):0)+'%;background:'+r.color+';"></div></div>'
+      +'<div class="rv">'+fmtTok(r.u.total)+'</div></div>';}).join('');
+    var roleSec='<div class="usage-section"><div class="usage-label">按角色</div>'+roleHtml+'</div>';
+    var maxTurn=turns.reduce(function(m,t){return Math.max(m,t.total);},1);
+    var seg=function(cls,n,total,title){return n>0?'<span class="tseg '+cls+'" style="width:'+(n/total*100).toFixed(2)+'%;" title="'+title+' '+n.toLocaleString()+'"></span>':'';};
+    var turnHtml=turns.map(function(t){return '<div class="turnrow"><div class="tm"><span>第 '+t.turn+' 轮</span><span>'+fmtTok(t.total)+'</span></div>'
+      +'<div class="bar" style="width:'+Math.max(4,Math.round(t.total/maxTurn*100))+'%;">'
+      +seg('in',t.uncached,t.total,'未缓存输入')+seg('read',t.cacheRead,t.total,'缓存读取')+seg('write',t.cacheWrite,t.total,'缓存写入')+seg('out',t.out,t.total,'输出')+'</div></div>';}).join('');
+    var turnSec='<div class="usage-section"><div class="usage-label">按轮次 · 当前会话</div>'
+      +(turns.length?turnHtml:'<div class="empty-usage">该会话还没有可用的逐轮 usage。子角色会话的轮次在其自己的会话里统计。</div>')+'</div>';
+    box.innerHTML=head+roleSec+turnSec;
+  }
+  function renderStats(){
+    var roots=state.items.filter(function(x){return !x.parentSessionId&&!state.archived.has(x.sessionId)&&classify(x).meaningful;});
+    var rows=roots.map(function(r){return {it:r,tier:tierOf(r),u:convUsage(r),title:classify(r).title};});
+    var tiers=['L1','L2','L3'],agg={};
+    tiers.forEach(function(t){agg[t]=rows.filter(function(r){return r.tier===t;});});
+    var avg=function(arr,f){if(!arr.length)return 0;return arr.reduce(function(s,r){return s+f(r);},0)/arr.length;};
+    var tierColor={L1:'#34C759',L2:'#FF9500',L3:'#FF3B30'};
+    var cards=tiers.map(function(t){var a=agg[t];
+      return '<div style="flex:1 1 150px;min-width:140px;border:.5px solid var(--sep);border-radius:10px;padding:10px;border-top:3px solid '+tierColor[t]+';">'
+        +'<div style="font-size:12px;font-weight:700;color:'+tierColor[t]+';">'+t+' · '+a.length+' 个任务</div>'
+        +'<div style="font-size:19px;font-weight:650;margin:6px 0 1px;">'+fmtTok(avg(a,function(r){return r.u.total;}))+'</div>'
+        +'<div style="font-size:10.5px;color:var(--sub);">平均总量 · '+avg(a,function(r){return r.u.steps;}).toFixed(1)+' 步 · 子角色 '+avg(a,function(r){return r.u.kids;}).toFixed(1)+'</div>'
+        +'<div class="usage-grid" style="margin-top:8px;">'
+        +usageItem('','未缓存输入',fmtTok(avg(a,function(r){return r.u.uncached;})))
+        +usageItem('cache','缓存读取',fmtTok(avg(a,function(r){return r.u.cacheRead;})))
+        +usageItem('write','缓存写入',fmtTok(avg(a,function(r){return r.u.cacheWrite;})))
+        +usageItem('out','输出',fmtTok(avg(a,function(r){return r.u.out;})))
+        +'</div></div>';}).join('');
+    rows.sort(function(a,b){return b.it.updatedAt-a.it.updatedAt;});
+    var trs=rows.map(function(r){
+      return '<tr><td style="max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(r.title)+'</td>'
+        +'<td style="color:'+tierColor[r.tier]+';font-weight:600;">'+r.tier+'</td>'
+        +'<td>'+fmtTok(r.u.uncached)+'</td><td>'+fmtTok(r.u.cacheRead)+'</td><td>'+fmtTok(r.u.cacheWrite)+'</td>'
+        +'<td>'+fmtTok(r.u.out)+'</td><td style="font-weight:600;">'+fmtTok(r.u.total)+'</td></tr>';}).join('');
+    $('statsBody').innerHTML=
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">'+cards+'</div>'
+      +(rows.length?'<table class="usage-table"><thead><tr>'
+      +'<th>任务</th><th>档位</th><th>未缓存输入</th><th>缓存读</th><th>缓存写</th><th>输出</th><th>总token</th></tr></thead>'
+      +'<tbody>'+trs+'</tbody></table>':'<div style="font-size:12px;color:var(--sub);">暂无可统计的任务。</div>');
+  }
+
+  // ---- tiny popovers ----
+  function bindPop(btnId,menuId){var b=$(btnId),m=$(menuId);b.addEventListener('click',function(e){e.stopPropagation();
+    document.querySelectorAll('.popover.open').forEach(function(x){if(x!==m)x.classList.remove('open');});m.classList.toggle('open');});
+    m.addEventListener('click',function(){m.classList.remove('open');});}
+  document.addEventListener('click',function(){document.querySelectorAll('.popover.open').forEach(function(x){x.classList.remove('open');});});
+
+  $('btnNew').addEventListener('click',function(){rpc('session/create','request',{agentPreset:'team-lead'}).then(function(v){select(v.sessionId,true);}).catch(function(e){alert('新建失败：'+e.message);});});
+  $('btnSend').addEventListener('click',send);
+  $('btnStop').addEventListener('click',function(){if(state.selected)rpc('session/cancel','request',{sessionId:state.selected}).catch(function(){});});
+  $('mNative').addEventListener('click',function(){window.open(token?'/?token='+encodeURIComponent(token):'/','_blank');});
+  $('mReload').addEventListener('click',function(){location.reload();});
+  $('btnInsp').addEventListener('click',function(){var insp=$('insp');var hide=!insp.classList.contains('hidden');insp.classList.toggle('hidden',hide);state.inspUserHidden=hide;});
+  $('delCancel').addEventListener('click',closeDel);
+  $('delArchive').addEventListener('click',archiveOnly);
+  $('delPurge').addEventListener('click',purgeHard);
+  $('delModal').addEventListener('click',function(e){if(e.target===$('delModal'))closeDel();});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape'){closeDel();$('pvModal').classList.remove('open');$('statsModal').classList.remove('open');}});
+  Array.prototype.forEach.call($('inspTabs').querySelectorAll('.segbtn'),function(b){b.addEventListener('click',function(){setInspTab(b.getAttribute('data-tab'));});});
+  $('pvClose').addEventListener('click',function(){$('pvModal').classList.remove('open');});
+  $('pvModal').addEventListener('click',function(e){if(e.target===$('pvModal'))$('pvModal').classList.remove('open');});
+  $('statsClose').addEventListener('click',function(){$('statsModal').classList.remove('open');});
+  $('statsModal').addEventListener('click',function(e){if(e.target===$('statsModal'))$('statsModal').classList.remove('open');});
+  $('mStats').addEventListener('click',function(){renderStats();$('statsModal').classList.add('open');});
+  bindPop('btnMore','moreMenu');bindPop('modeBtn','modeMenu');
+  Array.prototype.forEach.call($('modeMenu').querySelectorAll('button'),function(b){b.addEventListener('click',function(){state.mode=b.getAttribute('data-mode');$('modeLabel').textContent=MODE_LABEL[state.mode];});});
+  Array.prototype.forEach.call(document.querySelectorAll('.chip'),function(c){c.addEventListener('click',function(){$('input').value=c.getAttribute('data-ex');$('input').focus();autosize();});});
+  var ta=$('input');
+  ta.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+  function autosize(){ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,160)+'px';}
+  ta.addEventListener('input',autosize);
+
+  authed.then(poll);setInterval(poll,2000);
+})();
+</script>
+</body>
+</html>
