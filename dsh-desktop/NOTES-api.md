@@ -507,3 +507,64 @@ swiftc -O /tmp/symcheck.swift -o /tmp/symcheck && /tmp/symcheck
 5. **控制台页面的常驻动画（本机最值得修的一条）**：`dsh-home/console/index.html` 的 `.spinner` / `.caret` / `.node.run`（61/76/144 行）让 WebKit WebContent 进程**在任何窗口状态下都吃 ~9% CPU**（可见 9.2% / 隐藏 8.7% / 最小化 9.3%），App 进程同期只有 0.2–3%。这解释了 §12.5 里那个「~18% CPU」的旧实例（当时只量了 App 进程，没量 WebKit 子进程）。控制台不在本次可改范围（§0.5 只允许桥接改动）→ 后续两条路：① 控制台侧把动画限定在真正流式输出时；② App 侧在窗口不可见时把 WKWebView 摘出层级（M3 §12.6-4 的设想）。
 6. **侧边栏 12.5pt 固定字号**：全仓唯一正文级固定值（其余正文都是语义字号）；改语义字号需重核行高与截断，暂不动。
 7. **多窗口时代残留的 `defaults` 分栏键**已清理（`NSSplitView Subview Frames …AppWindow-1/-2`），单窗口模型不再写这类键。
+
+## 15. 模型路由切换（TokenDance → DeepSeek 官方）与委派路径修复
+
+### 15.1 换 key 实测：新 key 只对官方端点有效
+
+| 探测 | 结果 |
+|---|---|
+| 新 key `sk-5c54…` → `tokendance.space/gateway/v1` | `401 API 密钥不存在`（新 key 不是 TokenDance 的） |
+| 旧 key `sk-6a96…` → 同一网关 | `402 insufficient_quota`（§12.4 / §13.4 的欠费根因） |
+| 旧 key → `api.deepseek.com` | `401 invalid`（同 §13.4，不能当替代路由） |
+| 新 key → `api.deepseek.com` | `200`；`/v1/models` = `deepseek-flash` + `deepseek-v4-pro`；余额 `{"is_available":true,"total_balance":"4.48"}` CNY |
+| `reasoning_effort` low/medium/high/max、`thinking:{enabled\|disabled}` | 全部 200；响应带 `reasoning_content`，`tool_calls` 正常 |
+
+→ 路由整体切到官方：`settings.yaml` 的 `tokendance` provider → `deepseek`（`apiKeyEnv: DEEPSEEK_API_KEY`、`baseURL: https://api.deepseek.com/v1`）。
+`dsh-home/.credentials.yaml` 里 `DEEPSEEK_API_KEY` 换成新 key，顺手删掉已无人引用的 `TOKENDANCE_API_KEY`（该文件 git-ignored，不入库）。
+
+### 15.2 默认模型选 V4.1 Flash，不选 V4 Pro
+
+官方定价页实测（2026-09-11，单位 $/1M tokens，off-peak / peak）：
+
+| 模型 | 输入·命中缓存 | 输入·未命中 | 输出 |
+|---|---|---|---|
+| `deepseek-flash`（V4.1 Flash） | 0.003 / 0.006 | 0.15 / 0.3 | 0.6 / 1.2 |
+| `deepseek-v4-pro` | 0.022 / 0.044 | 0.66 / 1.32 | 1.98 / 3.96 |
+
+官方在同一页注明：V4.1 Flash「在质量、成本、速度与总耗时上全面超过 V4 Pro」，且 **2026-09-14 12:00（北京）起 `deepseek-v4-pro` 的请求全部转由 V4.1 Flash 承接、按 Flash 计价**。
+
+→ roster 默认 `deepseek-flash`；`deepseek-v4-pro` 保留在 `models` 列表里可手选（同一 1M 窗口）。
+→ Lead 档位仍走 §16 之前的 token 治理：`leadEffort: medium`（可改 low），coder `low`、reviewer `high` 不变。
+→ 成本量级：一次 24k 输入 + 0.7k 输出的 L2 委派 ≈ $0.004；`¥4.48` 余额够跑数百次这种任务，缓存命中率越高越省。
+
+### 15.3 首次真机委派抓到的真 bug：deny 名单混了两个命名空间
+
+第一次真机委派（session `a0d037dd`）在第 10 步抛出：
+
+```
+Error: tools.restrict() names unknown global tools "subagent", "subagent_claude_code";
+known global tools: ask_user_question, bash, create_goal, delegate_coder, delegate_reviewer, edit,
+exit_plan_mode, get_goal, glob, grep, interrupt_agent, job_kill, job_list, job_output, list_agents,
+mcp__filesystem__*, mcp__world_store__*, ralph, read, read_image, send_message, skill,
+subagent_codex, subagent_fork, todo_write, update_goal, web_fetch, web_search, workflow, write
+```
+
+- **根因**：`toolDeny` 里的 `subagent` / `subagent_claude_code` 是**另一套 profile 的命名**（默认内置子代理名），本部署（Web profile + filesystem/world_store MCP）没有 → `tools.restrict()` 直接抛错 → 委派在「子会话还没建」就失败。表象像卡住：Lead 失败两次后转去调 `ask_user_question` 等人回答，投影停在 `pendingCalls`。
+- **修 1**：`roster/team-lead.yml` 两个 `toolDeny` 收敛为运行时真实存在的名字（`web_search, web_fetch, subagent_fork, subagent_codex, delegate_coder, delegate_reviewer`；reviewer 再加 `write, edit`）。
+- **修 2**：`scripts/render-team.mjs` 增加 `KNOWN_TOOLS` 白名单——deny 里出现未知名字时渲染直接失败并点名（`mcp__` 前缀不校验，随 profile 装载变化）。
+- **修 3**：`tests/roster.test.mjs` 增加两条断言：干净树名单正确、注入 `subagent_claude_code` 后 `--check` 退出码 1 且点名。
+- **残留**：`subagent` 是**预设级**工具（由 preset 注册），不在全局注册表里 → `tools.restrict()` 既不能校验也不能 deny 它，子会话因此仍看得到 `subagent`；但 `maxDepth: 1` 已封死再下钻，风险受控。
+
+### 15.4 真机复验（session `5a3db70a`，2026-09-11）
+
+- Lead：3 步完成，结论「L2：delegate_coder 一次委派 + Lead 核验，未触发 reviewer——非 L3 且无可逆性风险」；用量 未命中 6065 + 命中缓存 47104 + 输出 690。
+- 子会话 `e5703f68`（coder）：`request/header.config = {provider: deepseek, model: deepseek-flash, reasoningEffort: low, maxTokens: 32768}`；工具表 41 个，deny 名单逐条核对**全部缺席**（只剩预设级 `subagent`）。
+- 产物：`/workspace/rq-check.txt` = `quota-ok\n`（9 字节，`cat -A` + `wc -c` 双证）；子会话一条 `bash` 建成并自验，约 3 秒。
+- 复现命令（容器内）：`docker exec dsh node /tmp/dsh-probe.js "<token>" "用 delegate_coder 在 /workspace 下创建 rq-check.txt，内容写 quota-ok，然后报告文件路径。"`
+
+### 15.5 剩余风险
+
+1. **余额只有 ¥4.48**：够验证、不够长期跑。按 §15.2 单价，建议用起来之前先充值，或把 `leadEffort` 调 `low`（改一个字段 + `render-team.mjs --write`）。
+2. **旧会话的模型选择指向已下线的 `tokendance/deepseek-v4-pro-0813`**：那些会话重开后需在模型选择里重新选一次（新会话默认已是 `deepseek/deepseek-flash`）。
+3. **relay 重启后的 502 窗口**：容器重启会换 token，App 在拿到新 token 前会刷出几行 `/console-api/v1/sessions 502`，拿到新 token 后自愈（本轮实测：重启后约 1 分钟内恢复 200）。若要彻底消除，App 侧应在 5xx 时也触发一次 token 重读（现只在 401 路径上做）。

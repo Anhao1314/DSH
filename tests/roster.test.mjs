@@ -93,6 +93,16 @@ check(bogus.status === 1, 'roster 未知字段导致校验退出码 1')
 check((bogus.stdout + bogus.stderr).includes('bogus'), '报错信息点名未知字段 bogus', (bogus.stdout + bogus.stderr).trim())
 writeFileSync(bogusPath, readFileSync(bogusPath, 'utf8').replace('\nbogus: 1\n', ''))
 
+// A deny name the runtime never registers must fail the render, not ship: the
+// subagent tool then dies inside tools.restrict() at delegation time.
+const badToolPath = path.join(tmp, 'dsh-home', 'roster', 'team-lead.yml')
+const goodRoster = readFileSync(badToolPath, 'utf8')
+writeFileSync(badToolPath, goodRoster.replace('      - subagent_fork\n', '      - subagent_fork\n      - subagent_claude_code\n'))
+const badTool = run('--check', '--root', tmp)
+check(badTool.status === 1, 'deny 含未知工具名导致退出码 1')
+check((badTool.stdout + badTool.stderr).includes('subagent_claude_code'), '报错信息点名未知工具 subagent_claude_code', (badTool.stdout + badTool.stderr).trim().split('\n')[1] || '')
+writeFileSync(badToolPath, goodRoster)
+
 const files = [PRESET_REL, PATCH_REL, AGENTS_REL, SETTINGS_REL]
 const snapshot = () => files.map((f) => readFileSync(path.join(tmp, f), 'utf8'))
 
@@ -127,12 +137,17 @@ const coder = subagent('delegate_coder')
 const reviewer = subagent('delegate_reviewer')
 check(Boolean(coder) && Boolean(reviewer), '预设含 delegate_coder / delegate_reviewer 两个委派工具')
 
-const EXPECTED_DENY = ['web_search', 'web_fetch', 'subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code', 'delegate_coder', 'delegate_reviewer']
+// Only names the runtime actually registers may appear here: an unknown one makes
+// tools.restrict() throw and kills every delegation (found live 2026-09-11, see NOTES §15).
+const EXPECTED_DENY = ['web_search', 'web_fetch', 'subagent_fork', 'subagent_codex', 'delegate_coder', 'delegate_reviewer']
+const UNKNOWN_DENY = ['subagent', 'subagent_claude_code']
 const denyOf = (entry) => entry?.config?.toolFilter?.deny ?? []
 check(EXPECTED_DENY.every((t) => denyOf(coder).includes(t)) && denyOf(coder).length === EXPECTED_DENY.length,
   'coder deny 列表完整', JSON.stringify(denyOf(coder)))
 check(['write', 'edit', ...EXPECTED_DENY].every((t) => denyOf(reviewer).includes(t)) && denyOf(reviewer).length === EXPECTED_DENY.length + 2,
   'reviewer 额外 deny write/edit（只读复核）', JSON.stringify(denyOf(reviewer)))
+check(![...denyOf(coder), ...denyOf(reviewer)].some((t) => UNKNOWN_DENY.includes(t)),
+  'deny 列表不含运行时没有的工具名（subagent / subagent_claude_code）', JSON.stringify(denyOf(coder)))
 check(coder?.config?.agentOptions?.reasoningEffort === 'low' && reviewer?.config?.agentOptions?.reasoningEffort === 'high',
   'coder=low / reviewer=high 档位写入预设')
 check(coder?.config?.agentOptions?.maxTokens === 32768 && reviewer?.config?.agentOptions?.maxTokens === 32768, '两个角色预算 32768')

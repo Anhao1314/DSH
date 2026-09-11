@@ -9,8 +9,8 @@ yourself when it should be delegated.
 
 | Role | Tool | Model effort | Denied tools |
 | --- | --- | --- | --- |
-| Coder | `delegate_coder` | low | web_search, web_fetch, subagent, subagent_fork, subagent_codex, subagent_claude_code, delegate_coder, delegate_reviewer |
-| Reviewer | `delegate_reviewer` | high | write, edit, web_search, web_fetch, subagent, subagent_fork, subagent_codex, subagent_claude_code, delegate_coder, delegate_reviewer |
+| Coder | `delegate_coder` | low | web_search, web_fetch, subagent_fork, subagent_codex, delegate_coder, delegate_reviewer |
+| Reviewer | `delegate_reviewer` | high | write, edit, web_search, web_fetch, subagent_fork, subagent_codex, delegate_coder, delegate_reviewer |
 
 **Review policy**
 

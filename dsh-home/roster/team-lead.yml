@@ -19,12 +19,14 @@ preset:
   name: 团队Lead模式
 
 model:
-  provider: tokendance
-  model: deepseek-v4-pro-0813
-  # Lead 的思考强度。该网关模型只声明 low / high / max 三档（模型说明：
-  # “简单任务使用 low，日常 Agent 任务使用 high”），high 是官方推荐的日常档位。
-  # 想更省就改成 low（同样会校验档位是否存在），max 留给最难任务。
-  leadEffort: high
+  provider: deepseek
+  model: deepseek-flash
+  # 模型档位必须在 settings.yaml 的路由里声明（生成器会校验）。默认用 V4.1 Flash：
+  # 官方称其质量/成本/速度全面优于 V4 Pro，且 2026-09-14 起 V4 Pro 的请求也转由它承接；
+  # 同窗口内的 V4 Pro 仍可在设置里手动选择。
+  # Lead 的思考强度；档位必须在 settings.yaml 的路由里声明（生成器会校验）。
+  # medium 是省 token 的日常档位，够日常协同；难任务临时抬到 high，max 留给最难。
+  leadEffort: medium
 
 context:
   # 上下文压缩：1M 窗口不再等到 80% 才压缩；压完只保留 20k 近期上下文。
@@ -51,13 +53,13 @@ roles:
     maxDepth: 1
     backgroundMode: one-shot
     # 每步都会重发的工具 schema，能不给就不给；世界模型与文件系统保留。
+    # 名字必须是运行时真实存在的全局工具：认不出的名字会让 tools.restrict()
+    # 直接抛错、整条委派路径不可用（生成器按 KNOWN_TOOLS 拦截拼写错误）。
     toolDeny:
       - web_search
       - web_fetch
-      - subagent
       - subagent_fork
       - subagent_codex
-      - subagent_claude_code
       - delegate_coder
       - delegate_reviewer
     report:
@@ -81,15 +83,14 @@ roles:
     maxTokens: 32768
     maxDepth: 1
     backgroundMode: one-shot
+    # 只读复核：deny 名单同 coder，外加写入工具。
     toolDeny:
       - write
       - edit
       - web_search
       - web_fetch
-      - subagent
       - subagent_fork
       - subagent_codex
-      - subagent_claude_code
       - delegate_coder
       - delegate_reviewer
     report:

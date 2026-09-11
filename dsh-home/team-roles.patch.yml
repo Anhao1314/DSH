@@ -17,20 +17,12 @@
         backgroundMode: one-shot
         maxDepth: 1
         agentOptions:
-          provider: tokendance
-          model: deepseek-v4-pro-0813
+          provider: deepseek
+          model: deepseek-flash
           reasoningEffort: low
           maxTokens: 32768
         toolFilter:
-          deny:
-            - web_search
-            - web_fetch
-            - subagent
-            - subagent_fork
-            - subagent_codex
-            - subagent_claude_code
-            - delegate_coder
-            - delegate_reviewer
+          deny: [web_search, web_fetch, subagent_fork, subagent_codex, delegate_coder, delegate_reviewer]
         persona: |
           You are the Coder. Implement exactly the delegated task with minimal,
           correct changes. Run the relevant command/check when useful. If the task
@@ -49,8 +41,8 @@
         backgroundMode: one-shot
         maxDepth: 1
         agentOptions:
-          provider: tokendance
-          model: deepseek-v4-pro-0813
+          provider: deepseek
+          model: deepseek-flash
           reasoningEffort: high
           maxTokens: 32768
         toolFilter:
@@ -59,10 +51,8 @@
             - edit
             - web_search
             - web_fetch
-            - subagent
             - subagent_fork
             - subagent_codex
-            - subagent_claude_code
             - delegate_coder
             - delegate_reviewer
         persona: |

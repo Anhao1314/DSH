@@ -3,27 +3,42 @@ ui-onboarding:
 agent-presets:
   default: team-lead
 agent-default-model:
-  provider: tokendance
-  model: deepseek-v4-pro-0813
-  reasoningEffort: high
+  provider: deepseek
+  model: deepseek-flash
+  reasoningEffort: medium
 llm-pi-ai:
   providers:
-    tokendance:
-      displayName: TokenDance
-      apiKeyEnv: TOKENDANCE_API_KEY
+    deepseek:
+      displayName: DeepSeek
+      apiKeyEnv: DEEPSEEK_API_KEY
       api: openai-completions
-      baseURL: https://tokendance.space/gateway/v1
-      reasoning: high
+      # 官方直连。旧的 TokenDance 网关额度已耗尽（402 insufficient_quota），
+      # 且它的 key 与官方 key 不通用；改用官方 API 后端点与模型 id 都换了名字。
+      baseURL: https://api.deepseek.com/v1
+      reasoning: medium
       compat:
         supportsDeveloperRole: false
         thinkingFormat: deepseek
       models:
-        - id: deepseek-v4-pro-0813
-          name: DeepSeek V4 Pro 0813
+        # 默认档：V4.1 Flash。官方称其在质量/成本/速度上全面超过 V4 Pro，且
+        # V4 Pro 自 2026-09-14 12:00（北京）起请求全部转由 Flash 承接并按 Flash 计价。
+        - id: deepseek-flash
+          name: DeepSeek V4.1 Flash
           contextWindow: 1000000
           reasoningEfforts:
             off:
             low: low
+            medium: medium
+            high: high
+            max: max
+        # 仍可手动选择的备选档（同一 1M 窗口，价格约 4 倍）。
+        - id: deepseek-v4-pro
+          name: DeepSeek V4 Pro
+          contextWindow: 1000000
+          reasoningEfforts:
+            off:
+            low: low
+            medium: medium
             high: high
             max: max
 ui-theme:

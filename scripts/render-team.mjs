@@ -60,6 +60,21 @@ const POLICIES = {
   ],
 }
 
+// The global tool names this deployment's runtime actually registers. A deny
+// entry the runtime cannot resolve makes `tools.restrict()` throw while the
+// subagent tool is being built — the delegation fails with a tool error before
+// any child session exists, which reads like a hang from the outside. The list
+// is the verbatim `known global tools:` echo from that error (Web profile with
+// the filesystem + world_store MCP servers mounted); `mcp__`-prefixed names are
+// checked only by prefix because MCP servers come and go with the profile.
+const KNOWN_TOOLS = new Set([
+  'ask_user_question', 'bash', 'create_goal', 'delegate_coder', 'delegate_reviewer', 'edit',
+  'exit_plan_mode', 'get_goal', 'glob', 'grep', 'interrupt_agent', 'job_kill', 'job_list',
+  'job_output', 'list_agents', 'ralph', 'read', 'read_image', 'send_message', 'skill',
+  'subagent_codex', 'subagent_fork', 'todo_write', 'update_goal', 'web_fetch', 'web_search',
+  'workflow', 'write',
+])
+
 function settingsEfforts(settingsText, provider, model) {
   const parsed = load(settingsText)
   const entry = parsed?.['llm-pi-ai']?.providers?.[provider]?.models?.find((m) => m.id === model)
@@ -109,6 +124,13 @@ function validate(roster, settingsText) {
     if (!Number.isInteger(role.maxDepth) || role.maxDepth < 1) fail(`${at}.maxDepth 必须是 ≥1 的整数`)
     if (!['one-shot', 'continuable'].includes(role.backgroundMode)) fail(`${at}.backgroundMode 必须是 one-shot / continuable`)
     if (!Array.isArray(role.toolDeny) || role.toolDeny.some((t) => typeof t !== 'string')) fail(`${at}.toolDeny 必须是字符串数组`)
+    for (const name of Array.isArray(role.toolDeny) ? role.toolDeny : []) {
+      if (typeof name !== 'string' || name.startsWith('mcp__')) continue
+      if (!KNOWN_TOOLS.has(name)) {
+        fail(`${at}.toolDeny 含运行时没有的工具名 "${name}"（委派会以 tools.restrict() 报错告终；`
+          + `可用：${[...KNOWN_TOOLS].join(', ')}）`)
+      }
+    }
     if (!Array.isArray(role.report) || role.report.length === 0) fail(`${at}.report 至少要有一项`)
     if (typeof role.persona !== 'string' || role.persona.trim() === '') fail(`${at}.persona 不能为空`)
   }
