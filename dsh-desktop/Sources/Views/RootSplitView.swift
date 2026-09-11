@@ -9,6 +9,20 @@ struct RootSplitView: View {
     @EnvironmentObject private var webStore: WebViewStore
 
     var body: some View {
+        if needsFirstRun {
+            FirstRunView()
+        } else {
+            mainSplit
+        }
+    }
+
+    /// 定位不到合法工程目录：整屏交给首启向导（§3.5）。
+    private var needsFirstRun: Bool {
+        if case .failed(.projectMissing) = stack.phase { return true }
+        return false
+    }
+
+    private var mainSplit: some View {
         NavigationSplitView {
             SidebarView()
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 300)

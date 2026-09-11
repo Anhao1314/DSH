@@ -93,4 +93,63 @@ enum Copy {
     // 日志
     static let logSectionTitle = "查看日志"
     static let logEmpty = "（暂无容器日志）"
+
+    // M4 菜单栏 / 退出 / 设置 / 首启向导
+    static let menuShowWindow = "显示主窗口"
+    static let menuNoTask = "当前没有任务"
+    static let menuStopAndQuit = "停止容器并退出"
+    static let menuWaitingQuit = "等任务完成后退出…"
+
+    static let quitRunningTitle = "还有任务在运行"
+    static let quitRunningBody = "现在退出会停掉容器并中止正在跑的任务。也可以等它跑完再自动退出。"
+    static let quitWait = "等任务完成后退出"
+    static let quitNow = "立即退出（任务与容器将停止）"
+    static let quitCancel = "取消"
+
+    static let notifyVerdictPass = "Reviewer 判定：通过"
+    static let notifyVerdictFail = "Reviewer 判定：发现问题"
+    static let notifyTaskDone = "任务已完成"
+    static let notifyTeamDone = "Coder 与 Reviewer 已完成"
+    static let notifyContainerTitle = "容器不健康"
+    static let notifyContainerBody = "dsh 容器没有响应，工作台会在恢复后自动继续。"
+    static let notifyQuitWhenIdle = "任务已完成，正在退出…"
+
+    static let relayTokenStale = "登录凭据可能已轮换，正在重读…"
+
+    static let settingsProject = "项目位置"
+    static let settingsProjectPath = "工程目录"
+    static let settingsReveal = "在 Finder 中显示"
+    static let settingsChangeProject = "重新选择"
+    static let settingsUnknown = "—"
+    static let settingsProjectChanged = "已切换工程目录，正在重新启动…"
+
+    static let settingsNotifications = "通知"
+    static let settingsNotifyToggle = "任务结束与容器异常时通知我"
+    static let settingsNotifyHint = "窗口在前台可见时不打扰；首次运行任务时系统会询问一次权限。"
+
+    static let settingsResources = "容器资源"
+    static let settingsCpuLimit = "CPU 上限"
+    static let settingsMemoryLimit = "内存上限"
+    static let settingsUsage = "当前占用"
+    static let settingsResourcesHint = "上限来自 orbstack/compose.yaml（只读）。要改请编辑该文件后重启容器。"
+    static func settingsCoresValue(_ cores: Double) -> String {
+        let value = cores > 0 ? cores : 0
+        return String(format: value == value.rounded() ? "%.0f 核" : "%.1f 核", value)
+    }
+
+    static let settingsDiagnostics = "诊断"
+    static let settingsVersion = "版本"
+    static let settingsOpenHome = "打开 dsh-home"
+    static let settingsExportLogs = "导出最近日志"
+    static let settingsExportDone = "日志已导出（已过滤 token）"
+    static let settingsExportFailed = "日志导出失败"
+
+    static let firstRunTitle = "先找到你的 dsh-workbench 工程"
+    static let firstRunLine1 = "工作台本身只是一个原生外壳：容器、预设与自建控制台都在你的 dsh-workbench 目录里。"
+    static let firstRunLine2 = "选定目录后，它会自动启动 OrbStack 里的 dsh 容器并连上本机中继（只监听 127.0.0.1）。"
+    static let firstRunLine3 = "目录里必须同时存在 orbstack/compose.yaml 与 deepseek-harness/orbstack-relay.cjs。"
+    static let firstRunChoose = "选择 dsh-workbench 文件夹"
+    static let firstRunInvalid = "这个目录不像 dsh-workbench：缺少 orbstack/compose.yaml 或 deepseek-harness/orbstack-relay.cjs。"
+    static let firstRunInvalidPrefix = "目录不合法"
+    static let firstRunSaveFailed = "无法写入设置文件（~/Library/Application Support/DSHTeam/config.json）。"
 }

@@ -303,3 +303,119 @@ ps -p $(pgrep -f 'dsh-desktop/build' | head -1) -o time=,pcpu=
 2. **多窗口**：SwiftUI `WindowGroup` 在 `open -a` / 状态恢复时会开出第二个窗口（Window 菜单实测出现两条同名项）。规格 3.3 要求「唯一模型」。→ M4 改单窗口（`Window` 场景或禁用状态恢复）。
 3. **token 轮换恢复**：容器若被 App 之外的方式重启（`docker restart/start`），App 仍持 Keychain 里的旧 token → 停在离线态（文案「登录握手失败（没有 Set-Cookie），token 可能已轮换」）。走 App 的「重启容器」可自愈。→ M4 加「401/握手失败 → 自动重读 token 重试」。
 4. **WebView 动画泄漏**（12.5）：→ M4/M5 观察；若复现，考虑窗口不可见时把 WKWebView 从层级摘除（保留实例与页面状态）以彻底停掉渲染。
+
+## 13. M4 实测记录（系统能力）
+
+> 实测时间：2026-09-11 13:15–14:05 · 产物 `dsh-desktop/build/DSH工作台.app`（ad-hoc，`swiftc` 零 warning）
+> 验证通道：CUA 无障碍树 + **CGWindowList 在屏窗口枚举** + System Events 按键 + shell 探针（见 13.3）
+
+### 13.1 验收逐条
+
+| # | 验收项 | 结果 | 证据（实测） |
+|---|---|---|---|
+| ① | 运行中关窗 → 任务继续（relay 仍在轮询）、菜单栏可恢复窗口 | ⚠️ 部分（额度阻塞「任务在跑」） | 关窗：File▸Close 与 ⌘W 都走 `windowShouldClose` → `orderOut`，`CGWindowListCopyWindowInfo(.optionOnScreenOnly)` 由 1 扇变 **0 扇**（1280×820 消失）；App 进程存活、无崩溃。轮询：隐藏期间 `docker logs dsh --since 20s \| grep -c '^\[relay\]'` = **7**（可见时 3–4 次/10s），CPU `0.0%`。恢复：菜单栏状态项（`menu bar 2`）菜单项为「显示主窗口 / 只回复两个字：收到 · 空闲 / 停止任务 / 重启容器 / 停止容器并退出」，点「显示主窗口」→ CGWindowList 回到 1 扇。**「任务继续」这半条需运行中任务，见 13.4** |
+| ② | 运行中 ⌘Q 三按钮分别验证（等待分支要真的等到结束并通知 + 退出；立即分支停容器退出；取消分支不变） | ⚠️ 未完成（额度阻塞） | 代码路径已就位：`applicationShouldTerminate` → 三按钮 NSAlert；等待分支 `isWaitingToQuit=true` + `.terminateLater`，AppStore 汇报 `onRunningStateChanged(false)` 时 `NSApp.reply(toApplicationShouldTerminate: true)` + 发通知；取消分支 `isWaitingToQuit` 不变。**需要「运行中」会话才能点三按钮**（13.4） |
+| ③ | 空闲 ⌘Q 直接退出且容器被停、占用归零 | ✅ | ⌘Q 后 **1 秒内**：`pgrep -f dsh-desktop/build` 空、`docker ps` 无 dsh、`docker ps -a` 显示 `dsh Exited (143)`；即 `applicationWillTerminate → StackController.stopOnQuit()`（Policy A）生效 |
+| ④ | 前台可见时不弹通知，切后台后完成才弹 | ⚠️ 未完成（额度阻塞） | 实现口径：`Notifier.post` 首行 `guard Notifier.preferenceEnabled, !Notifier.isUserWatching`；`isUserWatching` = App 活跃 **且** 存在「可见且未最小化」窗口 → 前台不打扰；授权在首个任务 `false→true` 时请求一次。设置里可整体关掉（`notifications.enabled`，默认开）。**需要「任务结束」事件才能实测**（13.4） |
+| ⑤ | 删掉 config 且 glob 不到工程目录 → 首启向导；选非法目录报错、选合法目录后正常进入 | ✅（渲染 + 校验口径） | 造场景：`.app` 拷到 `/tmp/dsh-firstrun/`（bundle 祖先不含工程）+ 临时把 `orbstack/compose.yaml` 移出（让 BFS 也命中不了）→ 启动即整屏向导：标题「先找到你的 dsh-workbench 工程」+ 3 条说明 + 「选择 dsh-workbench 文件夹」按钮 + 底部实时原因「未在常见目录找到 dsh-workbench」。校验口径把 `ProjectLocator.swift` 单独编译实测：工程根 **PASS**；`/tmp`、`$HOME`、`dsh-desktop/` 子目录全部 **reject** → 对应 `ProjectChooser.choose()` 里 `Copy.firstRunInvalid` 内联报错分支。**NSOpenPanel 的「选目录」交互未能自动化**（13.6-2） |
+| ⑥ | ⌘, 打开设置，改项目位置流程闭环 | ✅（打开 + 内容；「重新选择」受同一面板限制） | 系统菜单 App▸`Settings…`（标准 ⌘,）→ 设置窗（AXIdentifier `com_apple_SwiftUI_Settings_window`）四组：项目位置（工程目录绝对路径 + 在 Finder 中显示 + 重新选择）/ 通知（开关默认开 + 「窗口在前台可见时不打扰」）/ 容器资源（只读：上限 4 核 · 4.00G + 实时 6% · 505M）/ 诊断（版本 1.0.0 (1) + 打开 dsh-home + 导出最近日志）。`render-team.mjs --check` 无漂移、三个测试全过 |
+
+### 13.2 本轮修掉的真 bug
+
+1. **菜单栏图标不可见**：`menuBarIcon` 用了 `cube.container`，该符号在本机**不存在**（`NSImage(systemSymbolName:)` 返回 nil → 渲染空白，AX 里只剩符号名）。逐符号核验源码里全部 9 个 `systemName:` 后，只此一个 MISSING → 空闲态改为 `shippingbox`（`Main.swift` + `FirstRunView` 图标）。核验脚本见 13.3。
+2. **热启动读不到 token（会挡住「退出 App 再打开」的正常路径）**：`readToken()` 只回看 `docker logs --tail 400`，而容器**只在启动时打印一次** token，之后被中继访问日志顶出窗口（实测：token 在第 274 行、总 739 行 → `--tail 400` 看不到）→ App 停在「读不到登录凭据」（新加的 M4 错误分支如实报错，但用户只能手动重启容器）。改为**分档回看 400 → 2000 → 8000 行**，仍找不到再用 Keychain 里的旧 token 做一次真实请求验证（有效即复用）；实测容器重启后冷启动、以及容器已跑 20 分钟后重启 App 两条路径都能进 ready。
+3. **（方法学，不是产品 bug，但会误判）CUA `getScreenshot()` 对 `orderOut` 之后的窗口仍返回画面**：第一轮因此误判「⌘W/File▸Close 无效」；`AX` 里窗口也依旧存在（ordered-out 窗口不摘 AX 树）。**「窗口是否真的在屏」只认 `CGWindowListCopyWindowInfo(.optionOnScreenOnly)`**；键盘路径用 System Events 发送后一律用 CGWindowList 复核。
+
+### 13.3 关键证据命令
+
+```bash
+# 在屏窗口枚举（小工具 /tmp/wins，源码见 13.5）——判断「窗口真的藏了/回来了」的唯一判据
+swiftc -O /tmp/wins.swift -o /tmp/wins && /tmp/wins DSH
+
+# 隐藏期间轮询是否继续（任务是否还在被跟踪）
+docker logs dsh --since 20s 2>&1 | grep -c '^\[relay\]'
+
+# 菜单栏状态项（图标随状态：空闲=shippingbox / 跑任务=stop.circle.fill / 失败=警告）
+osascript -e 'tell application "System Events" to tell process "DSHTeam" to get name of every menu bar item of menu bar 2'
+osascript -e 'tell application "System Events" to tell process "DSHTeam" to click menu bar item 1 of menu bar 2' \
+          -e 'tell application "System Events" to tell process "DSHTeam" to get name of every menu item of menu 1 of menu bar item 1 of menu bar 2'
+
+# 键盘路径（必须先 set frontmost，否则按键会送给别的 App）
+osascript -e 'tell application "System Events" to tell process "DSHTeam" to set frontmost to true' \
+          -e 'delay 0.4' -e 'tell application "System Events" to keystroke "w" using command down'
+
+# 空闲 ⌘Q → 容器被停（Policy A）
+docker ps -a --filter name=dsh --format '{{.Names}} {{.Status}}'   # 期望：dsh Exited (143)
+
+# SF Symbols 逐个核验（源码里所有 systemName:）
+rg -o --no-filename 'systemName: "[^"]+"' dsh-desktop/Sources | sed 's/systemName: //' | tr -d '"' | sort -u > /tmp/symbols.txt
+#   + NSImage(systemSymbolName:accessibilityDescription:) 判空（脚本见 13.5）
+
+# 首启向导：隔离工程目录后启动
+cp -R dsh-desktop/build/DSH工作台.app /tmp/dsh-firstrun/
+mv orbstack/compose.yaml /tmp/compose.yaml.hold          # 让 bundle 祖先与 BFS 都命中不了
+open -n -a /tmp/dsh-firstrun/DSH工作台.app
+mv /tmp/compose.yaml.hold orbstack/compose.yaml          # 立刻还原
+```
+
+### 13.4 外部阻塞：上游额度仍然为 0（沿 M3 12.4）
+
+- 复现（容器内脚本 `/tmp/dsh-probe.js`）：握手 → `session/create` → `session/prompt` 全部成功（`{"accepted":true}`），但投影立刻是
+  `sessionStats: {turns:1, steps:1, llmMs:0}`、`tokenUsage.totals` 全 0、`turnOutline.turns[0].response: ""`。
+- 即：**链路（App → relay → 容器内 web → 上游）是通的，失败发生在模型侧**（M3 时实测是 `402 用户额度不足 … insufficient_quota`）。
+- 影响：M4 的 ②（运行中 ⌘Q 三按钮）与 ④（任务结束通知）**无法验收**；①的「任务继续」半条同样受影响。
+- 处置：与 M3 ② 同因，如实记入遗留；额度恢复后按下表补验即可（不需要改代码）。
+  | 补验项 | 一步操作 | 期望 |
+  |---|---|---|
+  | ①后半 | 跑一个 ≥2 分钟任务 → 关窗 | relay 轮询不断、任务完成时窗口仍隐藏 |
+  | ② | 运行中 ⌘Q → 三个按钮各点一次 | 等待：跑完 → 通知 → 退出；立即：停容器退出；取消：什么都没变 |
+  | ④ | 跑任务时把 App 切到后台 | 完成后弹通知；前台可见时不弹 |
+
+### 13.5 本轮用到的临时工具（放 /tmp，不入仓库）
+
+```swift
+// /tmp/wins.swift —— 在屏窗口枚举（判断窗口是否真的藏了）
+import CoreGraphics
+import Foundation
+let filter = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "DSH"
+let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+var found = 0
+for w in list {
+    let owner = w[kCGWindowOwnerName as String] as? String ?? ""
+    let name = w[kCGWindowName as String] as? String ?? ""
+    guard owner.contains(filter) || name.contains(filter) else { continue }
+    found += 1
+    print("owner=\(owner) name=\(name) layer=\(w[kCGWindowLayer as String] ?? "?") bounds=\(w[kCGWindowBounds as String] ?? [:])")
+}
+print("on-screen windows matching '\(filter)': \(found)")
+```
+
+```js
+// /tmp/dsh-probe.js（容器内跑）—— 握手 + 建会话 + 发 prompt，用来探额度
+// 用法：docker exec dsh node /tmp/dsh-probe.js "<token>" "只回复两个字：收到"
+const http = require('http'); const token = process.argv[2]; let cookie = null;
+function login() { /* GET /?token=… → 取 Set-Cookie 第一段 */ }
+function rpc(method, argName, args) { /* POST /api/<method>，信封 {type,rpcId,method,payload:{args:{[argName]:args}}} */ }
+(async () => { await login();
+  const c = await rpc('session/create','request',{agentPreset:'team-lead'});
+  const s = await rpc('session/prompt','request',{requestId:'probe-'+Date.now(),sessionId:c.sessionId,mode:'queue',content:[{type:'text',text:process.argv[3]}]});
+  console.log(c.sessionId, JSON.stringify(s)); })();
+```
+
+```bash
+# SF Symbols 判空（与上面的 rg 配合）
+cat > /tmp/symcheck.swift <<'EOF'
+import AppKit
+let names = (try? String(contentsOfFile: "/tmp/symbols.txt", encoding: .utf8))?.split(separator: "\n").map(String.init) ?? []
+for n in names { print((NSImage(systemSymbolName: n, accessibilityDescription: nil) == nil ? "MISSING " : "ok      ") + n) }
+EOF
+swiftc -O /tmp/symcheck.swift -o /tmp/symcheck && /tmp/symcheck
+```
+
+### 13.6 偏差与遗留（转 M5）
+
+1. **②④ 与 ①后半未验收**：唯一原因是上游额度（13.4），代码已就位；补验步骤已列成表。
+2. **NSOpenPanel 交互未能自动化**：首启向导「选非法目录报错 / 选合法目录进入」与设置里「重新选择」都依赖同一个文件选择面板。CUA 只对第一个 App 实例稳定，第二个实例的模态面板拿不到焦点；AppleScript 能打开面板（`⌘⇧G` 出 sheet）、也能写 sheet 的文本框，但「确认选择」那一步没走通 → M5 若需要，改用「临时把面板默认目录指到 /tmp」或加一个仅供测试的 `DSH_WORKBENCH_ROOT` 覆盖路径来做闭环。
+3. **多窗口残留**：`defaults read local.dsh.team` 里仍有旧的 `…AppWindow-1/-2` 分栏记忆（历史 WindowGroup 时代留下），当前启动只开一扇（`Window` 场景 + `isRestorable=false`），M5 可顺手清理这条键。
+4. **WebView 动画泄漏**（12.5）本轮未复现：隐藏窗口后 CPU 实测 `0.0%`（`orderOut` 之后 WKWebView 不再驱动渲染），与 12.5 的「最小化仍 18%」不同，判断是那次样本的页面状态问题 → M5 的 1 小时内存/CPU 观察继续盯。
+5. **首次真正退出时容器被停**（③）会让「下次打开要等 compose up + healthy ≈ 30–60s」成为常态。当前按规格（Policy A）实现；如果体验上不接受，M5 可考虑「settings 里给一个『退出时停止容器』开关」，但规格 3.5 明确「设置里不出现生命周期策略类开关」→ 保持现状，仅记录。

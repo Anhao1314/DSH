@@ -47,6 +47,23 @@ final class StackController: ObservableObject {
 
     func restartContainer() { enqueue { generation in self.restartPipeline(generation) } }
 
+    /// 容器被 App 之外的方式重启后 token 会轮换：重读一次凭据并换掉 consoleURL。
+    /// 幂等、静默失败（读不到就保持现状，下一次轮询还会再请求）。
+    func refreshToken() {
+        enqueue { generation in
+            self.engine.selectTransport()
+            guard let fresh = self.readToken() else { return }
+            guard self.isCurrent(generation) else { return }
+            self.token = fresh
+            KeychainStore.saveToken(fresh)
+            guard let url = URL(string: Self.base + "/console?token=" + fresh) else { return }
+            DispatchQueue.main.async {
+                guard self.isCurrent(generation) else { return }
+                self.consoleURL = url
+            }
+        }
+    }
+
     func stopContainer() {
         enqueue { generation in
             guard let root = ProjectLocator.shared.resolve() ?? ProjectLocator.shared.cachedRoot else { return }
@@ -187,8 +204,19 @@ final class StackController: ObservableObject {
         return false
     }
 
+    /// 容器只在启动时打印一次 token，之后会被中继访问日志顶出窗口；同时 App 重启、
+    /// 容器长时间运行时也不能依赖「日志最后 400 行」。所以：
+    /// 1) 分档回看（400 → 2000 → 8000 行），命中即停；
+    /// 2) 仍找不到就用 Keychain 里上一次的 token 做一次真实请求验证（有效即复用）。
     private func readToken() -> String? {
-        let logs = engine.logsTail(lines: 400)
+        for lines in [400, 2000, 8000] {
+            if let found = Self.parseToken(engine.logsTail(lines: lines)) { return found }
+        }
+        if let cached = KeychainStore.readToken(), relayAccepts(token: cached) { return cached }
+        return nil
+    }
+
+    private static func parseToken(_ logs: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: "token=([A-Za-z0-9_\\-]{8,})") else { return nil }
         let range = NSRange(logs.startIndex..<logs.endIndex, in: logs)
         guard let match = regex.matches(in: logs, range: range).last,
@@ -196,6 +224,23 @@ final class StackController: ObservableObject {
               let tokenRange = Range(match.range(at: 1), in: logs) else { return nil }
         let value = String(logs[tokenRange])
         return value.isEmpty ? nil : value
+    }
+
+    /// 用一次真实请求确认 token 还有效（token 不进日志、不落盘）。
+    private func relayAccepts(token: String) -> Bool {
+        guard let url = URL(string: Self.base + "/console-api/v1/sessions?token=" + token) else { return false }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 8
+        let session = URLSession(configuration: configuration)
+        let semaphore = DispatchSemaphore(value: 0)
+        var ok = false
+        let task = session.dataTask(with: url) { _, response, _ in
+            if let http = response as? HTTPURLResponse, http.statusCode == 200 { ok = true }
+            semaphore.signal()
+        }
+        task.resume()
+        _ = semaphore.wait(timeout: .now() + 10)
+        return ok
     }
 
     private func waitForRelay(token: String, generation: Int) -> Bool {

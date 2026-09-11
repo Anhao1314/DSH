@@ -32,6 +32,12 @@ final class AppStore: ObservableObject {
     /// 运行态变化的对外广播（M4 的通知、菜单栏共用）。
     var onRunningChanged: ((SessionRoot, Bool) -> Void)?
     var onTaskFinished: ((SessionRoot) -> Void)?
+    /// 「有没有任何任务在跑」的整体翻转（⌘Q 等任务完成要用）。
+    var onRunningStateChanged: ((Bool) -> Void)?
+    /// 中继认定凭据失效（容器被外部重启导致 token 轮换）——请上层重读 token。
+    var onTokenStale: (() -> Void)?
+    /// 容器从健康变为不健康（通知用，只在翻转边沿触发一次）。
+    var onContainerUnhealthy: (() -> Void)?
 
     private let client = RelayClient()
     private let metricsEngine = DockerEngine()
@@ -46,6 +52,10 @@ final class AppStore: ObservableObject {
     private var emptyStreak = 0
     /// Docker 指标查询是否在途（慢调用不能叠加）。
     private var metricsInFlight = false
+    /// 已经为「凭据失效」请求过一次重读，避免离线期间反复触发。
+    private var tokenRefreshRequested = false
+    /// 中继 side 的上游健康上一次观测值（只有 true→false 才通知）。
+    private var upstreamWasUp: Bool?
     /// 刚创建、还没跑出投影的会话：轮询暂时看不到它，但要保住选中态。
     private var pendingSelection: (id: String, expires: Date)?
 
@@ -137,6 +147,9 @@ final class AppStore: ObservableObject {
         if visible, tick % 7 == 0 {
             recountArtifacts()
         }
+        if visible, tick % 15 == 7 {
+            await pollHealth()
+        }
     }
 
     func refresh() async {
@@ -155,8 +168,28 @@ final class AppStore: ObservableObject {
             apply(roots: response.roots)
             relayPhase = .ok
             lastSessionsAt = Date()
+            tokenRefreshRequested = false
+        } catch RelayError.unauthorized {
+            // 容器被 App 之外的方式重启 → token 轮换 → 重读一次（只重读一次，避免打转）。
+            relayPhase = .offline(Copy.relayTokenStale)
+            if !tokenRefreshRequested {
+                tokenRefreshRequested = true
+                onTokenStale?()
+            }
         } catch {
             relayPhase = .offline(error.localizedDescription)
+        }
+    }
+
+    /// 中继到上游（容器内 web）的连通性：只在「好 → 坏」的边沿通知一次。
+    private func pollHealth() async {
+        do {
+            let health = try await client.health()
+            let up = health.upstreamUp
+            if upstreamWasUp == true, !up { onContainerUnhealthy?() }
+            upstreamWasUp = up
+        } catch {
+            // 中继本身不可达时不算「容器不健康」：离线态已经在 relayPhase 里表达。
         }
     }
 
@@ -178,11 +211,20 @@ final class AppStore: ObservableObject {
             next[root.id] = root.running
             if let was = previous[root.id], was != root.running {
                 onRunningChanged?(root, root.running)
-                if was && !root.running { onTaskFinished?(root) }
+                if was && !root.running {
+                    onTaskFinished?(root)
+                    Notifier.shared.taskFinished(title: root.title, body: Self.finishBody(root))
+                }
+                if !was && root.running {
+                    Notifier.shared.requestAuthorizationIfNeeded()
+                }
             }
         }
+        let runningNow = next.values.contains(true)
+        let runningBefore = previous.values.contains(true)
         runningMap = next
         roots = fresh
+        if runningNow != runningBefore { onRunningStateChanged?(runningNow) }
 
         if let id = selectedID, let pending = pendingSelection, pending.id == id, pending.expires > Date(),
            !fresh.contains(where: { $0.id == id }) {
@@ -195,6 +237,15 @@ final class AppStore: ObservableObject {
         }
         if selectedID == nil, let first = fresh.first {
             select(first.id, syncWeb: true)
+        }
+    }
+
+    /// 通知正文（规格 §3.4 的三种措辞 + 兜底）。
+    private static func finishBody(_ root: SessionRoot) -> String {
+        switch root.verdict {
+        case "pass": return Copy.notifyVerdictPass
+        case "fail": return Copy.notifyVerdictFail
+        default: return root.children.isEmpty ? Copy.notifyTaskDone : Copy.notifyTeamDone
         }
     }
 
