@@ -11,6 +11,13 @@ services:
     # Lightweight / on-demand: do not auto-start with OrbStack; bring it up with
     # dsh-up.sh and stop it with dsh-down.sh. When stopped, local footprint is 0.
     restart: "no"
+    # relay 会为 /console-api/* 打一行访问日志（只记路径不记 token）；给日志加上限，
+    # 免得长期轮询把 json-file 日志撑成无限增长。
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     # Hard caps so a runaway agent loop cannot eat the Mac (OrbStack/OCI limits).
     cpus: "2.0"
     mem_limit: 2g

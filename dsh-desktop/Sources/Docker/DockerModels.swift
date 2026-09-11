@@ -33,8 +33,26 @@ struct DockerContainerInspect: Decodable {
             case health = "Health"
         }
     }
+    struct HostConfig: Decodable {
+        let nanoCpus: UInt64?
+        let memory: UInt64?
+        enum CodingKeys: String, CodingKey {
+            case nanoCpus = "NanoCpus"
+            case memory = "Memory"
+        }
+    }
     let state: State?
-    enum CodingKeys: String, CodingKey { case state = "State" }
+    let hostConfig: HostConfig?
+    enum CodingKeys: String, CodingKey {
+        case state = "State"
+        case hostConfig = "HostConfig"
+    }
+}
+
+/// 容器真实上限（来自 HostConfig，而不是 compose 文件里的字面值）。
+struct ContainerLimits: Equatable {
+    let cpus: Double
+    let memoryBytes: UInt64
 }
 
 struct DockerStatsSample: Decodable {

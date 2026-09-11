@@ -236,3 +236,70 @@ curl -s "http://127.0.0.1:3081/console-api/v1/sessions" | head -c 80
 - 新增 `?session=` 自动选中、`window.dshHostAPI{select,create,cancelSelected}`、`selectionChanged/runningChanged/taskFinished` 单向事件（`webkit.messageHandlers.dshHost` 判空后调用，浏览器里静默跳过）。
 - 内联脚本改动只在既有函数尾部追加调用，业务逻辑零改写；`render-team.mjs --check` 与 `tests/{roster,console-usage,console-history}` 全部通过。
 - 浏览器直开 `?session=` 的自动选中改为在 M3 原生壳里验收（本机 CUA 当前无可用浏览器实例，届时用 App 内 WKWebView 截图核对）。
+
+***
+
+## 12. M3 实测记录（三栏工作台）
+
+> 实测时间：2026-09-11 12:44–13:15 · 产物 `dsh-desktop/build/DSH工作台.app`（ad-hoc，`swiftc` 零 warning）
+> 验证通道：CUA 无障碍树（本机 CLI 无「屏幕录制」权限，`screencapture` 直接失败 → 本轮无截图，见 12.6）
+
+### 12.1 验收逐条
+
+| # | 验收项 | 结果 | 证据（实测） |
+|---|---|---|---|
+| ① | 跑一个 L3 任务，Lead→Coder→Reviewer 完整故事线，pass/fail 颜色正确 | ✅（用真实历史会话验收） | 选中 `session-de24a617…`（真实 L3：Q-learning 交付 + 独立复核）：团队卡 `Lead，已通过` / `Coder，编写简单强化学习算法代码，完成` / `Reviewer，校验强化学习代码正确性，完成`；故事线 5 事件：`下发任务 · 第 1 轮`、`委派 Coder：…`、`委派 Reviewer：…`、`Coder 完成 · 83s`、`Reviewer 完成 · 104s`；产物卡 `2 个文件` + `在 Finder 打开`。颜色语义：pass=绿 `checkmark.seal.fill`、fail=橙 `xmark.octagon.fill`，且每处同时带无障碍文案（状态不只靠颜色） |
+| ② | 运行中「停止任务」可中止且容器不重启 | ⚠️ 未完成（外部阻塞） | 上游模型额度耗尽（12.4），无法造出「运行中」会话。可验证部分：空闲时按钮 `isAnyRunning=false` 置灰；`POST /v1/cancel` 对空闲会话 → `502`，界面提示「该任务已不在运行」 |
+| ③ | 切会话中间页不整页白屏重载 | ✅ | 侧边栏点行 → 中栏内容切换，AX 中 WebView `URL: …/console?token=…`（**无** `?session=`）保持不变；仅当页面未注册 `dshHostAPI` 时才降级为 `?session=` 重载 |
+| ④ | 窗口最小化 5 分钟：CPU 近零、无轮询请求、恢复后立即刷新 | ✅ | 最小化后 40s：relay 访问日志 **0** 条（可见时 3–4 条/10s）、进程 CPU `0.09s/40s ≈ 0.2%`（`ps %CPU 0.0`）；从 Window 菜单恢复后 **5s 内 2 次** sessions 轮询，随后回到 3 次/10s |
+| ⑤ | 深色模式无硬编码颜色 | ✅（源码级审计） | `grep -rn "Color(red:\|\.white\|\.black\|NSColor(calibrated\|NSColor(red\|#[0-9a-f]{6}"` → **0 命中**；全部为语义色/动态色：`.secondary`(14) `.tertiary`(7) `Color(nsColor: .separatorColor/.windowBackgroundColor/.tertiaryLabelColor/.secondaryLabelColor/.quaternaryLabelColor)` + `.regularMaterial` 材质；状态色仅 `.green`/`.orange` 且均带文案 |
+| ⑥ | 断网 / relay 502 显示离线态而不崩 | ✅ | `docker stop dsh` → 中栏 banner「与中继的连接中断，正在自动重试…」、Inspector 离线卡「离线 … 中继没有响应（NSURLError -1004）」、容器卡回落 `CPU 0% / 内存 0M/0M`；App 不崩、侧边栏保留最后列表；点「重启容器」→ 重读 token → 自动恢复（relay 轮询恢复，WebView URL 换成新 token） |
+
+### 12.2 本轮修掉的真 bug
+
+1. **心跳被 Docker 指标查询拖慢**：`beat()` 里 `await pollMetrics()` 串联等待（Docker Unix socket 单次 1s+），导致 tick 从 1s 变 ~2s，sessions 实测 6–8s 一次（规格要求 3s）。改为 `startMetricsPoll()` 非阻塞 + 在途去重，实测回到 **3–4 次/10s**。
+2. **测试脆弱性**：`tests/console-history.test.mjs` 原先假定列表第一条会话带用量；真实数据里新增的 0-token 会话（本条就是额度失败留下的）会让断言失败。改为显式挑选「有真实用量」的会话再断言，意图不变。
+
+### 12.3 关键证据命令
+
+```bash
+# ④ 轮询暂停/恢复（relay 只记路径，token 永不落日志）
+docker logs dsh --since 40s 2>&1 | grep -c '^\[relay\]'      # 最小化后 = 0
+# ④ CPU
+ps -p $(pgrep -f 'dsh-desktop/build' | head -1) -o time=,pcpu=
+# ① / ③ 界面结构
+#   CUA: app.getAXState() → 团队/故事线/容器/产物 + WebView URL 是否带 ?session=
+```
+
+### 12.4 外部阻塞：上游额度耗尽（导致 ② 无法验收）
+
+诊断会话 `session-459195e0…` 的事件流显示：prompt 被正常受理（`agent/inbox/spliced` → `turn/start` → `step/start` → `request/header`），随后模型调用返回：
+
+```
+402 {"message":"用户额度不足。请先充值，到账后重试本次请求。…","code":"insufficient_quota"}
+→ turn/end reason: error code QUOTA
+```
+
+- 结论：**「HTTP 下发 prompt 不运行」的旧结论是误判**——链路完全正常，失败在账户余额（Tokendance）。此前浏览器里能跑通只是额度尚未耗尽的时间差。
+- 影响：M3 ②（运行中停止）与 M4 大部分验收项都要求真实运行中的任务，需充值后补测。
+- 另：`dsh-home/.credentials.yaml` 里的 `DEEPSEEK_API_KEY` 调 `api.deepseek.com/user/balance` 返回 `Authentication Fails … invalid`（不可用作替代路由）。
+
+### 12.5 CPU 归因实验（探针构建）
+
+长时运行的旧实例曾出现 ~18% 持续 CPU（最小化/隐藏时仍在烧）。用 scratch 探针构建（同源码，仅把 `consolePane` 的 `WebView` 换成纯色）对照：
+
+| 场景 | 进程 CPU |
+|---|---|
+| 探针构建（无 WebView）可见空闲 | ≈ 0.0%（20s 内 0.00s） |
+| 正式构建，新实例可见空闲 | 0.25%（20s 内 0.05s） |
+| 正式构建，最小化 | 0.2%（40s 内 0.09s） |
+| **旧长时实例（多轮任务后）** | **~18%（最小化/隐藏时仍持续）** |
+
+`sample` 抓到的热点是主线程 **每帧 Core Animation 事务**（`UC::DriverCore::continueProcessing` → `NSDisplayHostingView.layout` → `SwiftUI ViewGraph renderDisplayList`），即「有一个持续动画在驱动 60/120Hz 渲染」。探针无 WebView 时该现象消失 → 归因指向 **WKWebView 内的页面（控制台）存在未停止的动画**（`.spinner`/`.caret` 这类 `animation: … infinite`，在断流/异常中止后可能保持）。本轮未再复现（需「多轮任务 + 异常中止」组合）。
+
+### 12.6 偏差与遗留（转 M4/M5）
+
+1. **截图验收改为无障碍树 + 源码审计**：本机 CLI 无屏幕录制权限（`screencapture` 报 `could not create image from display`），⑤ 的「深色模式截图」改为源码级审计（0 硬编码颜色）+ 结构核对；M5 若获得授权再补截图。
+2. **多窗口**：SwiftUI `WindowGroup` 在 `open -a` / 状态恢复时会开出第二个窗口（Window 菜单实测出现两条同名项）。规格 3.3 要求「唯一模型」。→ M4 改单窗口（`Window` 场景或禁用状态恢复）。
+3. **token 轮换恢复**：容器若被 App 之外的方式重启（`docker restart/start`），App 仍持 Keychain 里的旧 token → 停在离线态（文案「登录握手失败（没有 Set-Cookie），token 可能已轮换」）。走 App 的「重启容器」可自愈。→ M4 加「401/握手失败 → 自动重读 token 重试」。
+4. **WebView 动画泄漏**（12.5）：→ M4/M5 观察；若复现，考虑窗口不可见时把 WKWebView 从层级摘除（保留实例与页面状态）以彻底停掉渲染。

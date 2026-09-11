@@ -173,8 +173,23 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 try {
   await sleep(120)
 
-  const active = document.querySelector('#taskList .row.active')
+  let active = document.querySelector('#taskList .row.active')
   check(active !== null, '真实历史会话渲染出侧边栏选中项')
+
+  // 会话数据是真实持续增长的：最新一条可能还没有任何用量（0 token 会话按设计隐藏用量 pill）。
+  // 为了断言稳定，这里显式挑一条「有真实用量」的历史会话再断言。
+  const totalOf = (id) => (id ? sumTotals([id, ...kidsOf(id).map((it) => it.sessionId)]) : 0)
+  if (totalOf(active && active.getAttribute('data-sid')) === 0) {
+    const withUsage = [...document.querySelectorAll('#taskList .row')]
+      .find((row) => totalOf(row.getAttribute('data-sid')) > 0)
+    check(!!withUsage, '存在一条带用量的历史会话可供断言', withUsage ? 'ok' : '全部为 0 token')
+    if (withUsage) {
+      withUsage.click()
+      await sleep(200)
+      active = document.querySelector('#taskList .row.active')
+    }
+  }
+
   const sid = active && active.getAttribute('data-sid')
   const childIds = sid ? kidsOf(sid).map((it) => it.sessionId) : []
   const expectedTotal = sid ? sumTotals([sid, ...childIds]) : 0

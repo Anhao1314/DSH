@@ -615,6 +615,14 @@ async function handleV1Create(req, res) {
 
 const server = http.createServer((req, res) => {
   const pathname = (req.url || '/').split('?')[0]
+  // 访问日志只记「方法 + 路径 + 状态 + 耗时」：绝不记 query（token 就在 query 里）。
+  // 用途：M3 验收「窗口最小化后没有轮询请求」时需要可核对的证据。
+  if (pathname.startsWith('/console-api/')) {
+    const startedAt = Date.now()
+    res.on('finish', () => {
+      console.log(`[relay] ${req.method} ${pathname} ${res.statusCode} ${Date.now() - startedAt}ms`)
+    })
+  }
   if (pathname === '/console-api/v1/health' && req.method === 'GET') {
     handleV1Health(res)
     return

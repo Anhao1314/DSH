@@ -145,6 +145,32 @@ final class DockerEngine {
     // MARK: - 观测
 
     /// CPU% 用两次采样（间隔 1s）的增量计算；内存取 usage(减 cache) / limit。
+    /// 容器真实上限：HostConfig 的 NanoCpus / Memory（override 文件可能改过 compose 的字面值）。
+    func limits(_ name: String = containerName) -> ContainerLimits? {
+        switch transport {
+        case .socket(let path):
+            guard let response = try? UnixSocketHTTP.request(socketPath: path, path: "/containers/\(name)/json", timeout: 6),
+                  response.status == 200,
+                  let inspect = try? JSONDecoder().decode(DockerContainerInspect.self, from: response.body),
+                  let host = inspect.hostConfig else { return nil }
+            return ContainerLimits(
+                cpus: Double(host.nanoCpus ?? 0) / 1_000_000_000,
+                memoryBytes: host.memory ?? 0
+            )
+        case .cli:
+            let result = ProcessShell.run(
+                "docker inspect -f '{{.HostConfig.NanoCpus}}|{{.HostConfig.Memory}}' \(name) 2>/dev/null",
+                timeout: 8
+            )
+            let parts = result.output.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "|")
+            guard parts.count == 2 else { return nil }
+            return ContainerLimits(
+                cpus: (Double(parts[0]) ?? 0) / 1_000_000_000,
+                memoryBytes: UInt64(parts[1]) ?? 0
+            )
+        }
+    }
+
     func stats(_ name: String = containerName) -> ContainerMetrics? {
         switch transport {
         case .socket(let path):
