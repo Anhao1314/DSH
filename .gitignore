@@ -1,0 +1,20 @@
+# Native app build output
+dsh-desktop/build/
+
+# Runtime data / caches that must never be committed
+dsh-home/.pnpm-store/
+dsh-home/storages/
+dsh-home/sessions/
+dsh-home/artifacts/
+dsh-home/dump.err
+dsh-home/dump.txt
+dsh-home/**/*.roster-bak
+workspace/
+world-store/
+
+# Vendored upstream dependencies
+deepseek-harness/node_modules/
+deepseek-harness/**/node_modules/
+deepseek-harness/**/*.tsbuildinfo
+
+.DS_Store
