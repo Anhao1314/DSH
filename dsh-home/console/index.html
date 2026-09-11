@@ -271,6 +271,13 @@
   var token = new URLSearchParams(location.search).get('token') || '';
   var $ = function(id){return document.getElementById(id);};
   var authed = token ? fetch('/?token='+encodeURIComponent(token),{redirect:'manual'}).catch(function(){}) : Promise.resolve();
+  var HOST_SESSION = new URLSearchParams(location.search).get('session') || '';
+
+  // 单向事件：只在原生壳里存在 dshHost handler；浏览器里静默跳过。
+  function hostPost(type,payload){
+    try{ if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.dshHost)
+      window.webkit.messageHandlers.dshHost.postMessage(Object.assign({type:type},payload||{})); }catch(e){}
+  }
 
   var TPL = {
     auto:'',
@@ -322,7 +329,7 @@
   }
   var mux=new Mux();
 
-  var state={items:[],byId:{},selected:null,mode:'auto',records:[],live:'',followCancel:null,wsLive:false,olderOpen:false,inspUserHidden:false,inspTab:'flow',artifacts:[],
+  var state={items:[],byId:{},selected:null,mode:'auto',records:[],live:'',followCancel:null,wsLive:false,olderOpen:false,inspUserHidden:false,inspTab:'flow',artifacts:[],hostSessionApplied:false,runningMap:{},
     archived:new Set(JSON.parse(localStorage.getItem('dsh_archived')||'[]'))};
   function saveArchived(){localStorage.setItem('dsh_archived',JSON.stringify([...state.archived]));}
 
@@ -490,13 +497,21 @@
     $('pane-usage').style.display=tab==='usage'?'block':'none';
     if(tab==='usage')renderUsage();
   }
-  function select(sid,focus){state.selected=sid;state.inspUserHidden=false;state.artifacts=[];setInspTab('flow');renderSide();updateTokenPill();followSession(sid);loadArtifacts(sid);if(focus)$('input').focus();}
+  function select(sid,focus){state.selected=sid;state.inspUserHidden=false;state.artifacts=[];setInspTab('flow');renderSide();updateTokenPill();followSession(sid);loadArtifacts(sid);if(focus)$('input').focus();hostPost('selectionChanged',{sessionId:sid});}
 
   function poll(){
     rpc('session/list','_request',{}).then(function(v){
       state.items=v.items||[];state.byId={};state.items.forEach(function(x){state.byId[x.sessionId]=x;});
       $('connDot').className='conn-dot ok';$('connTxt').classList.add('hidden');
       renderSide();
+      if(HOST_SESSION&&!state.hostSessionApplied&&state.byId[HOST_SESSION]){state.hostSessionApplied=true;select(HOST_SESSION);}
+      var prevRunning=state.runningMap||{},nextRunning={};
+      state.items.forEach(function(x){nextRunning[x.sessionId]=!!x.running;
+        if(prevRunning[x.sessionId]!==undefined&&prevRunning[x.sessionId]!==!!x.running){
+          hostPost('runningChanged',{sessionId:x.sessionId,running:!!x.running});
+          if(!x.running)hostPost('taskFinished',{sessionId:x.sessionId,running:false,verdict:classify(x).verdict});
+        }});
+      state.runningMap=nextRunning;
       if(!state.selected){var first=state.items.filter(function(x){return !x.parentSessionId&&!state.archived.has(x.sessionId)&&classify(x).meaningful;}).sort(function(a,b){return b.updatedAt-a.updatedAt;})[0];
         if(first)select(first.sessionId);}
       if(state.selected){refreshHeader();renderTimeline();if(!state.wsLive)pageFallback(state.selected);loadArtifacts(state.selected);}
@@ -717,6 +732,15 @@
   ta.addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
   function autosize(){ta.style.height='auto';ta.style.height=Math.min(ta.scrollHeight,160)+'px';}
   ta.addEventListener('input',autosize);
+
+  // 原生壳的稳定入口：只转调已有的 rpc/select，不重写业务逻辑。
+  window.dshHostAPI={
+    version:1,
+    select:function(id){ if(!id||!state.byId[id])return false; state.hostSessionApplied=true; select(id); return true; },
+    create:function(){ return rpc('session/create','request',{agentPreset:'team-lead'}).then(function(v){ select(v.sessionId); poll(); return v.sessionId; }); },
+    cancelSelected:function(){ if(!state.selected)return Promise.resolve(false);
+      return rpc('session/cancel','request',{sessionId:state.selected}).then(function(){return true;}).catch(function(){return false;}); }
+  };
 
   authed.then(poll);setInterval(poll,2000);
 })();

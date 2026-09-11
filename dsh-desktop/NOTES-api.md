@@ -186,3 +186,53 @@ DOCKER_HOST=unix:///tmp/nope.sock docker ps   # 复现 CLI 失败形态
 2. **M2 relay**：v1 接口自己完成登录握手并缓存 cookie；所有 session id 过 `SESSION_ID_RE`；上游 5s 超时，超时/失败返回 502 `{ok:false,error}`。
 3. **M2 桥接**：控制台已有 `token` 查询参数与 `select()`，桥接只需新增 `session` 参数自动选中 + `window.dshHostAPI` + `webkit.messageHandlers.dshHost` 事件（调用前判空）。
 4. **M3 时间线**：数据源 = 投影缓存 + 归档集合；缓存缺失返回空数组；角色/结论规则严格复用控制台（low→coder / high→reviewer；`\bPASS\b`/`\bFAIL\b`）。
+
+---
+
+## 11. M2 实测记录（relay v1 + 控制台桥接）
+
+> 实测时间：2026-09-11 · 容器 `dsh` healthy · 全部命令走 Mac 侧 `127.0.0.1:3081`。
+> 取 token：`TOKEN=$(docker logs dsh 2>&1 | grep -oE 'token=[A-Za-z0-9_-]+' | tail -1 | cut -d= -f2)`（43 字符）。
+
+### 11.1 五个 v1 接口
+
+| # | 用例 | 结果 |
+|---|---|---|
+| (1) | `GET /console-api/v1/health`（上游正常） | `200 {"ok":true,"upstream":"up","serverTime":…}`，10ms 级 |
+| (1b) | 本机第二实例模拟上游停用（`DSH_INTERNAL_PORT=3999 DSH_EDGE_PORT=3099`） | `health` → `200 {"ok":true,"upstream":"down"}`，0.010s 不挂起；同实例 `sessions` → `502 {"ok":false,"error":"connect ECONNREFUSED 127.0.0.1:3999"}`，0.003s |
+| (2) | `GET /console-api/v1/sessions?token=…` | `200`，`roots=10`；根 `id/title/role/running/updatedAt/turns/verdict/tokens{input,output,cacheRead}/children[]`，子 `id/role/label/running/updatedAt/settledMs/verdict` |
+| (3) | `GET /console-api/v1/timeline?token=…&session=session-de24a617-…&limit=200` | `200`，5 事件，按 seq 有序：`4 turn lead 下发任务`、`6 delegate coder start 委派 Coder：编写简单强化学习算法代码`、`6 delegate reviewer start 委派 Reviewer：校验强化学习代码正确性`、`7 delegate coder done Coder 完成 · 83s`、`7 delegate reviewer done Reviewer 完成 · 104s` |
+| (3b) | `session=nope` | `400 {"ok":false,"error":"invalid session id"}` |
+| (3c) | 合法但无投影缓存的 id | `200 {"ok":true,"events":[]}`，不报错 |
+| (4a) | `POST /console-api/v1/cancel` `{"sessionId":"../../etc/passwd"}` | `400 invalid session id` |
+| (4b) | `POST /console-api/v1/cancel` `{}` | `400 invalid session id` |
+| (4c) | 对空闲会话 cancel（真实 id） | `502 {"ok":false,"error":"session \"session-…\" not found (not attached)"}` —— 上游语义：只有运行中的会话可取消；Swift 侧按“该任务已不在运行”提示 |
+| (5a) | `POST /console-api/v1/session` `{"agentPreset":"../evil"}` | `400 invalid agent preset` |
+| (5b) | `POST /console-api/v1/session` `{"agentPreset":"team-lead"}` | `200 {"ok":true,"sessionId":"session-784d0871-cc0e-4726-b23a-8ca24b217650"}` |
+
+### 11.2 实测中修掉的真 bug
+
+1. **`turnOutline` 真实形态**：v7 投影是对象 `{turns:[{turn,seq,prompt,response}]}`，不是数组 → 原实现 `Array.isArray()` 判假，时间线只剩 delegate 事件。已加 `turnList()` 统一解包（数组 / `{turns}` 都吃）。
+2. **主会话 `subagent:{}`**：空对象是 truthy → 原实现给主会话凭空发了一条 `委派 Lead：`（seq=0）。已加 `subagentIdentity()`：无 `label` 且无 `seq` 一律返回 `null`。
+3. **错误码语义**：新增 `sendUpstreamError()`：上游 401 → `401 {ok:false,error:"unauthorized"}`（便于 Swift 重新握手），其余 → `502 {ok:false,error}`。
+
+### 11.3 鉴权与既有接口回归
+
+```bash
+# 无 token 也能拿到数据：不是漏洞，是 relay 进程内已缓存握手 cookie（§0 结论不变：上游无凭据 401）
+curl -s "http://127.0.0.1:3081/console-api/v1/sessions" | head -c 80
+```
+
+| 既有能力 | 验证 | 结果 |
+|---|---|---|
+| `GET /console-api/artifacts` | `?session=session-de24a617…` | `200 {"ok":true,"files":[{"rel":"交付报告.md",…},{"rel":"q_learning.py",…}]}` |
+| `GET /console-api/artifact`（中文名） | `path=交付报告.md`（URL 编码） | `200`；`content-disposition: attachment; filename="artifact.md"; filename*=UTF-8''%E4%BA%A4%E4%BB%98%E6%8A%A5%E5%91%8A.md`（双 filename 保持） |
+| `POST /console-api/purge` | `{"sessionId":"session-784d0871…"}` | `200 {"ok":true,"removed":[…],"bytesFreed":4053}`；非法 id → `400` |
+| WS mux 隧道 | 先 `GET /?token=` 取 `Set-Cookie`，再带 cookie 打 Upgrade 到 `/api/remote.mux` | `101 Switching Protocols` + `Sec-WebSocket-Accept` + 上游帧；不带 cookie → `401`（预期，浏览器自带上游 cookie） |
+| SSE/chunked 透传 | 未改该路径代码；Upgrade/代理分支保持原样 | 由 M3 真机使用覆盖 |
+
+### 11.4 控制台桥接（§4.2）
+
+- 新增 `?session=` 自动选中、`window.dshHostAPI{select,create,cancelSelected}`、`selectionChanged/runningChanged/taskFinished` 单向事件（`webkit.messageHandlers.dshHost` 判空后调用，浏览器里静默跳过）。
+- 内联脚本改动只在既有函数尾部追加调用，业务逻辑零改写；`render-team.mjs --check` 与 `tests/{roster,console-usage,console-history}` 全部通过。
+- 浏览器直开 `?session=` 的自动选中改为在 M3 原生壳里验收（本机 CUA 当前无可用浏览器实例，届时用 App 内 WKWebView 截图核对）。

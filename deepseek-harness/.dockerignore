@@ -1,0 +1,16 @@
+# Dependencies are reinstalled inside the image for linux/arm64
+**/node_modules/
+# NOTE: .git is intentionally kept — the build embeds `git rev-parse HEAD`.
+# Build outputs (rebuilt inside the image; macOS artifacts must not leak in)
+**/dist/
+**/lib/
+**/.release/
+**/*.tsbuildinfo
+**/*.node
+# Caches / misc
+**/.cache/
+**/coverage/
+**/.turbo/
+.DS_Store
+*.log
+# NOTE: .npmrc (npmmirror registry) is intentionally kept.

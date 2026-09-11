@@ -1,0 +1,43 @@
+# syntax=docker/dockerfile:1
+# DeepSeek Harness (dsh) — run-from-source image for OrbStack (linux/arm64)
+FROM node:22-bookworm-slim
+
+# Native deps: node-pty / node-gyp need python3 + make + a C/C++ toolchain;
+# ca-certificates for TLS to the model gateway.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates g++ make python3 git \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# pnpm 11.7.0 (matches package.json#packageManager); use the China mirror for
+# both the pnpm download and any registry traffic during install.
+ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com \
+    npm_config_registry=https://registry.npmmirror.com \
+    CI=true \
+    LEFTHOOK=0 \
+    NODE_OPTIONS=--max-old-space-size=4096 \
+    DSH_HOME=/root/.dsh
+
+RUN corepack enable && corepack prepare pnpm@11.7.0 --activate
+
+# Full source (build context = repository root; see .dockerignore).
+COPY . .
+
+# Install (lockfile is cross-platform; linux/arm64 optional deps resolve here),
+# then build the native addon, host/client libs and the web frontend.
+RUN pnpm install --frozen-lockfile
+RUN pnpm run build
+
+# dsh binds loopback only; orbstack-relay.cjs exposes it at the container edge.
+ENV DSH_INTERNAL_PORT=3080 \
+    DSH_EDGE_PORT=8080
+RUN chmod +x orbstack-entrypoint.sh
+
+# Edge port the relay listens on (published / reached via dsh.orb.local).
+EXPOSE 8080
+ENTRYPOINT ["./orbstack-entrypoint.sh"]
+
+# 401 (no token) still proves the loopback server is listening.
+HEALTHCHECK --interval=10s --timeout=5s --start-period=90s --retries=9 \
+  CMD node -e "fetch('http://127.0.0.1:3080/').then(r=>process.exit([200,401].includes(r.status)?0:1)).catch(()=>process.exit(1))"

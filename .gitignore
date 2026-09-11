@@ -2,7 +2,8 @@
 .toolchain/
 
 # ── 上游 deepseek-harness 是独立 clone（含 190MB .git）：整棵排除。
-#    我们的本地 overlay 文件用 `git add -f` 强制跟踪：
+#    我们的 5 个本地 overlay 文件用 ./scripts/track-overlay.sh 单独登记进 index
+#    （嵌套 .git 会让 `git add -f` 静默失效）：
 #      deepseek-harness/{.dockerignore,.npmrc,Dockerfile.orbstack,orbstack-entrypoint.sh,orbstack-relay.cjs}
 deepseek-harness/
 
