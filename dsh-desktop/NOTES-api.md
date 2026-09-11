@@ -419,3 +419,91 @@ swiftc -O /tmp/symcheck.swift -o /tmp/symcheck && /tmp/symcheck
 3. **多窗口残留**：`defaults read local.dsh.team` 里仍有旧的 `…AppWindow-1/-2` 分栏记忆（历史 WindowGroup 时代留下），当前启动只开一扇（`Window` 场景 + `isRestorable=false`），M5 可顺手清理这条键。
 4. **WebView 动画泄漏**（12.5）本轮未复现：隐藏窗口后 CPU 实测 `0.0%`（`orderOut` 之后 WKWebView 不再驱动渲染），与 12.5 的「最小化仍 18%」不同，判断是那次样本的页面状态问题 → M5 的 1 小时内存/CPU 观察继续盯。
 5. **首次真正退出时容器被停**（③）会让「下次打开要等 compose up + healthy ≈ 30–60s」成为常态。当前按规格（Policy A）实现；如果体验上不接受，M5 可考虑「settings 里给一个『退出时停止容器』开关」，但规格 3.5 明确「设置里不出现生命周期策略类开关」→ 保持现状，仅记录。
+
+***
+
+## 14. M5 实测记录（打磨与发布）
+
+> 实测时间：2026-09-11 13:33 起 · 产物 `build/DSH工作台.app`（ad-hoc，版本 **1.1.0 (2)**）
+> 本轮改动面：只在 `dsh-desktop/**`（`git status -- dsh-home deepseek-harness` 为空）
+
+### 14.1 本轮改了什么
+
+| 文件 | 改动 |
+| --- | --- |
+| `Info.plist` | 版本 1.1.0 / build 2；`CFBundleDevelopmentRegion=zh-Hans` + `CFBundleLocalizations=[zh-Hans,en]` |
+| `build-app.sh` | release 走版本化产物 `build/DSH工作台-<版本>.app` + 同名 zip；Hardened Runtime 最小 entitlements；`notarytool submit --wait` → `stapler staple` → `codesign --verify --deep --strict` → `spctl --assess`；缺 `DEVELOPER_ID` 硬失败；两种模式都生成 `Contents/Resources/zh-Hans.lproj` |
+| `Docker/DockerEngine.swift` | 新增 `composeImageReference`（`docker compose config --images`）与 `imageExists`（Engine API `/images/{ref}/json`，CLI 兜底） |
+| `Stack/StackController.swift` | compose 预算按「镜像是否存在」自适应：缺镜像 = 首次构建 → 1800s + 文案「首次构建镜像（需要几分钟）…」；「重启容器」在容器已不存在时回落完整流水线，而不是 `docker restart` 撞 404 |
+| `Copy.swift` | 新增 `phaseBuildingImage` |
+| `Views/RootSplitView.swift` | 三个纯图标工具栏按钮补 `accessibilityLabel`（VoiceOver 之前读的是 SF Symbol 自带描述） |
+| `Views/Components.swift` | `HintRow` 装饰图标 `accessibilityHidden(true)` |
+| `State/AppStore.swift` + `Main.swift` | 窗口可见性改由「主窗」判定并注入：`AppDelegate.mainWindowVisible` → `store.setVisibilityProvider{}`（修掉 14.3 里发现的轮询回归） |
+| 新增 | `README.md`（架构 / 目录职责 / 调试发布 / 降级通道）、`ACCEPTANCE-v1.md`（对照规格 §6 逐条验收） |
+
+### 14.2 连续运行 1 小时（M5 验收③）
+
+采样：`/tmp/dsh-m5-sample.sh`（60s × 70）→ 日志 `dsh-desktop/build/acceptance/m5-1h-sample.log`（副本 `/tmp/dsh-acceptance/`），
+窗口 13:35:29 → 14:37:39，取满 **63 个样本（>1 小时）**，全程容器 healthy、App 未重启：
+
+| 指标 | 首 | 末 | 峰 | 谷 | 结论 |
+| --- | --- | --- | --- | --- | --- |
+| App RSS | 139,904 KB | 80,896 KB | 140,512 KB | 53,920 KB | **−42%**：先回落后在 54–88 MB 间波动，无单调增长 |
+| WebKit 内容进程 RSS | 60,224 KB | 46,464 KB | 93,040 KB | 21,504 KB | 同样只波动不增长（WebKit 自己回收） |
+| App CPU（ps pcpu） | — | — | 15.4% | — | 均值 **2.56%**（含启动尖峰；空闲稳态见 14.3） |
+| relay 轮询/分 | 14 | 23 | 33 | 14 | 均值 **23.1，从未掉到 0**（容器与 App 全程在线） |
+
+### 14.3 冷启动（M5 验收②）+ 重启后复验
+
+**造条件**：`docker rm -f dsh` + `docker image tag deepseek-harness:local deepseek-harness:pre-m5 && docker rmi deepseek-harness:local`
+（只剩备份 tag，compose 眼里「镜像不存在」）+ `~/Library/Application Support/DSHTeam/config.json` 不存在 → 双击启动。
+观测脚本每 2s 记录容器状态/健康/镜像/界面文案（`/tmp/dsh-coldstart.log`）。
+
+| 时刻 | 现象 |
+| --- | --- |
+| 14:39:02 | App 启动；`state=none image=`（容器与镜像都不存在） |
+| 14:39:18 | `state=running` + 新镜像 `461943eeb736`（compose 自动 rebuild 完成，缓存全热 ≈16s） |
+| 14:39:21 | `health=healthy` → 读 token → ready |
+
+**修掉的真 bug**：compose 预算原本硬编码 90s。实测「镜像缺失 → 首次构建」在缓存需要重新解包时要 **2m51s**
+（`time docker compose build`：`#16 unpacking … 16.1s`、总 2:50.96），旧预算必然把冷启动判成 `composeFailed`。
+现在按「镜像是否存在」自适应：缺镜像 → 1800s + 文案「首次构建镜像（需要几分钟）…」；`重启容器` 在容器已不存在时回落完整流水线。
+
+**复验（重启后同一台机）**：
+
+| 项 | 结果 |
+| --- | --- |
+| 系统菜单 | `文件 / 编辑 / 显示 / 窗口 / 帮助`（修复前 `File / Edit / View / Window / Help`） |
+| 工具栏无障碍名 | `重启容器` / `重新载入页面` / `在浏览器打开`（修复前分别是 `正在同步` / `刷新` / `Safari浏览器`）；边栏开关 = `显示边栏` |
+| 装饰图标 | 不再出现在无障碍树（`HintRow` 已隐藏） |
+| 中栏控制台 | 加载出完整 HTML 内容树（团队工作台 + 会话列表 + 输入区）；`/console?token=…` → 200 |
+| token | Keychain 与容器当前 token 43 字符且逐字节一致 |
+| 截图 | `build/acceptance/m5-after-relaunch-ready.png`（三栏就绪态）、`m5-workbench-visible.png`（改造前） |
+
+**顺带发现并修掉的回归（M4 引入）**：⌘W 关窗后 App 仍按「可见」频率轮询（实测 12 条/30s），
+因为 `AppStore.windowIsVisible()` 是扫描 `NSApp.windows`，而 M4 加的 `MenuBarExtra` 自带一个常驻的
+`NSStatusBarWindow` → 永远判定「有可见窗口」。改为由 `AppDelegate.mainWindowVisible`（只认被接管的主窗）注入后：
+隐藏 = **0 条/30s**、App 进程 0.2–0.4% CPU；Dock/菜单栏叫回来后 8s 内 4 次轮询（立即刷新）。
+
+**遗留**：WebKit 内容进程在「可见 / 隐藏 / 最小化」三种状态下都稳定吃 ~9% CPU（App 进程同期 0.2–3%）。
+三态都一样 → 与窗口状态无关，归因于控制台页面自己的动画/定时器（`.spinner` / `.caret` / `node.run` + 2s 轮询）。
+控制台不在本次可改范围（§0.5 只允许桥接改动）→ 见 14.6-5。
+
+### 14.4 走查与修复（VoiceOver / 本地化）
+
+- 无障碍树审计（`getAXState`）发现：工具栏「重启容器」被读成 **正在同步**、「在浏览器打开」被读成 **Safari浏览器**——都是 SF Symbol 的系统描述，`.help()` 不参与无障碍。已补 label；`HintRow` 的空态图标（“更多”“移动”）同理，改为对 VoiceOver 隐藏。
+- 系统文案未本地化：菜单栏是 `File / Edit / View / Window / Help`、边栏开关是 `Hide Sidebar`。原因是 bundle 没有任何本地化声明 → AppKit 按开发区域回落英文。加 `CFBundleDevelopmentRegion` + `zh-Hans.lproj` 后复验（见 14.3）。
+
+### 14.5 红线复核（规格 §7）
+
+逐条结果见 `ACCEPTANCE-v1.md` §6。本轮额外取证：`docker port dsh` = `8080/tcp -> 127.0.0.1:3081`（唯一映射）；中文产物活体 `content-disposition: attachment; filename="artifact.md"; filename*=UTF-8''%E4%BA%A4%E4%BB%98%E6%8A%A5%E5%91%8A.md`；`defaults read local.dsh.team` 中 token 命中 0；Keychain 里的 token 与容器当前 token 逐字节一致。
+
+### 14.6 遗留与偏差（转后续）
+
+1. **上游额度为 0**：M3 ②、M4 ①②④ 仍无法验收（同 §12.4 / §13.4），补验表见 `ACCEPTANCE-v1.md` §3.1。
+2. **本机无 Developer ID 证书 / 公证 profile**：release 只能验到 `codesign` 报 `no identity found`；脚本保证不会产出「看似成功」的半成品。
+3. **本机 CLI 无屏幕录制权限**：视觉证据改为无障碍树 + `CGWindowListCopyWindowInfo(.optionOnScreenOnly)` + App 内截图（落 `build/acceptance/`，`build/` 不入库）。
+4. **`NSOpenPanel` 交互无法自动化**：首启向导 / 设置的目录选择只验到渲染与校验口径。
+5. **控制台页面的常驻动画（本机最值得修的一条）**：`dsh-home/console/index.html` 的 `.spinner` / `.caret` / `.node.run`（61/76/144 行）让 WebKit WebContent 进程**在任何窗口状态下都吃 ~9% CPU**（可见 9.2% / 隐藏 8.7% / 最小化 9.3%），App 进程同期只有 0.2–3%。这解释了 §12.5 里那个「~18% CPU」的旧实例（当时只量了 App 进程，没量 WebKit 子进程）。控制台不在本次可改范围（§0.5 只允许桥接改动）→ 后续两条路：① 控制台侧把动画限定在真正流式输出时；② App 侧在窗口不可见时把 WKWebView 摘出层级（M3 §12.6-4 的设想）。
+6. **侧边栏 12.5pt 固定字号**：全仓唯一正文级固定值（其余正文都是语义字号）；改语义字号需重核行高与截断，暂不动。
+7. **多窗口时代残留的 `defaults` 分栏键**已清理（`NSSplitView Subview Frames …AppWindow-1/-2`），单窗口模型不再写这类键。

@@ -13,9 +13,9 @@
     <key>CFBundleIdentifier</key>
     <string>local.dsh.team</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>2</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>1.1.0</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleInfoDictionaryVersion</key>
@@ -26,6 +26,13 @@
     <true/>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.developer-tools</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>zh-Hans</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>zh-Hans</string>
+        <string>en</string>
+    </array>
     <key>NSAppTransportSecurity</key>
     <dict>
         <key>NSAllowsLocalNetworking</key>

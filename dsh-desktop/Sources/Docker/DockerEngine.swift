@@ -133,6 +133,33 @@ final class DockerEngine {
         }
     }
 
+    /// compose 服务实际使用的镜像引用：真相只在 compose.yaml，Swift 侧不重复写 tag。
+    func composeImageReference(orbDir: String) -> String? {
+        let result = ProcessShell.run("cd \(orbDir) && docker compose config --images 2>/dev/null", timeout: 10)
+        guard result.ok else { return nil }
+        return result.output
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+    }
+
+    /// 镜像是否存在。不存在即「首次构建」：apt + pnpm install + build 全套跑完可能十几分钟，
+    /// 90s 的 compose 预算会直接把冷启动判死（M5 验收②）。
+    func imageExists(_ reference: String) -> Bool {
+        switch transport {
+        case .socket(let socketPath):
+            let encoded = reference.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? reference
+            guard let response = try? UnixSocketHTTP.request(
+                socketPath: socketPath,
+                path: "/images/\(encoded)/json",
+                timeout: 8
+            ) else { return false }
+            return response.status == 200
+        case .cli:
+            return ProcessShell.run("docker image inspect \(reference) >/dev/null 2>&1", timeout: 8).ok
+        }
+    }
+
     /// compose 只能走 CLI（Engine API 没有等价物）；输出进启动日志缓冲。
     func composeUp(orbDir: String, timeout: TimeInterval = 90) -> ProcessShell.Result {
         ProcessShell.run("cd \(orbDir) && docker compose up -d", timeout: timeout)

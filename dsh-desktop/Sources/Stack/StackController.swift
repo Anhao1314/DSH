@@ -113,7 +113,10 @@ final class StackController: ObservableObject {
         }
 
         publish(.composeUp, Copy.phaseComposeUp, generation)
-        let up = engine.composeUp(orbDir: root.path + "/orbstack")
+        let orbDir = root.path + "/orbstack"
+        let needsBuild = engine.composeImageReference(orbDir: orbDir).map { !engine.imageExists($0) } ?? false
+        if needsBuild { publish(.composeUp, Copy.phaseBuildingImage, generation) }
+        let up = engine.composeUp(orbDir: orbDir, timeout: needsBuild ? 1800 : 90)
         guard isCurrent(generation) else { return }
         if !up.ok {
             fail(.composeFailed(LogRedaction.tail(up.output, lines: 6)), tail: engine.logsTail(lines: 40), generation)
@@ -123,9 +126,14 @@ final class StackController: ObservableObject {
     }
 
     private func restartPipeline(_ generation: Int) {
-        publish(.checkingOrb, Copy.actionRestartContainer, generation)
         engine.selectTransport()
         publishTransport(generation)
+        // 容器被删掉（docker rm / compose down）时 docker restart 必然 404：直接重跑流水线。
+        if engine.state() == nil {
+            fullPipeline(generation)
+            return
+        }
+        publish(.checkingOrb, Copy.actionRestartContainer, generation)
         let result = engine.restart()
         guard isCurrent(generation) else { return }
         guard result.ok else {

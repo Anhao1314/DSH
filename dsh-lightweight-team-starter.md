@@ -4,6 +4,7 @@
 > 协作：Lead 一次性委派（one-shot）给 Coder / Reviewer，跑顺后再升级持久 AgentTeams。
 > 更新：2026-09-09 已修复“子 Agent 无法执行命令（no sandbox backend）”与“默认预设冷启动崩溃”两个问题。
 > 更新：2026-09-11 工作台已迁移到 `multi-agent-research/dsh-workbench`；新增 MCP overlay、edge relay 与 `/console` 健康检查，重新验证冷启动和中文 artifact 下载。
+> 更新：2026-09-11 新增**原生工作台**（`dsh-desktop/`，v1.1.0）：三栏界面、菜单栏驻留、关窗任务不停、急停走 `session/cancel`，见第 7 节。
 
 ## 1. 架构与资源模型
 
@@ -71,13 +72,30 @@ docker exec dsh sh -c 'cd /app && pnpm dsh --profile headless \
   --patch /root/.dsh/team-roles.patch.yml "<任务，要求调用 delegate_coder/delegate_reviewer>"'
 ```
 
-## 7. 已验证（2026-09-09）
+## 7. 原生工作台（macOS App，v1.1.0 · 2026-09-11）
+
+把上面这套团队从浏览器标签页搬进一扇常驻窗口：`dsh-desktop/`（SwiftUI + WKWebView，零第三方依赖，`./build-app.sh` 直接产出可双击的 `.app`）。
+
+- **三栏**：会话列表 ｜ Web 控制台 ｜ Inspector（团队 / 故事线 / 容器 / 产物）。
+- **关窗 = 隐藏**（任务继续跑），菜单栏常驻可随时叫回；**空闲 ⌘Q** 退出并停容器（占用归 0），**运行中 ⌘Q** 三选一：等它跑完 / 立即停容器 / 取消。
+- **降级通道**：OrbStack 没开、compose 起不来、容器被停、token 轮换、relay 502 都有对应失败态与一键修复，不白屏、不假死。
+- **「停止任务」≠「停止容器」**：前者只发 `session/cancel`（中止当前轮次，容器不重启）。
+- 与本文档的关系：App 只是外壳。角色 / 委派 / MCP 仍完全由 `dsh-home/roster/team-lead.yml` → 预设 + 启动 overlay 决定，**App 不新增任何容器**，也不碰 `deepseek-harness/packages/**`。
+
+```bash
+cd dsh-desktop && ./build-app.sh && open "build/DSH工作台.app"   # 本地 ad-hoc
+# 分发：DEVELOPER_ID="Developer ID Application: …" ./build-app.sh release
+```
+
+架构图、目录职责、调试与发布步骤、降级通道见 `dsh-desktop/README.md`；逐条验收与偏差见 `dsh-desktop/ACCEPTANCE-v1.md`。
+
+## 8. 已验证（2026-09-09）
 
 - 三角色闭环：Lead→Coder 写并运行→Reviewer 三轮复验，曾抓出真实 Unicode 边界缺陷判 FAIL→退回修复→终审 PASS。
 - 固化 full-access 后，命令在容器内直接执行（headless 实测 `echo` 回显正确），不再报沙箱错误、无需逐次批准。
 - 默认 team-lead 预设下**冷启动 healthy、零 webServer 注入错误**；容器数始终为 1，子角色无残留进程；2CPU/2GiB/restart=no 生效。
 
-## 8. 后续升级（有需求再做）
+## 9. 后续升级（有需求再做）
 
 1. ~~给 Coder/Reviewer 加精确 `toolFilter` 最小权限~~ 已做：见 `roster/team-lead.yml` 的 `toolDeny`（预设与 headless 补丁由生成器写入）。
 2. 挂载一个宿主工作区目录，让产物落盘到 Mac（现演示产物在容器 /tmp）。

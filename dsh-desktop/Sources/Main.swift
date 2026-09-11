@@ -77,6 +77,7 @@ struct DSHTeamApp: App {
         delegate.store = store
         delegate.stack = stack
         store.setTokenProvider { KeychainStore.readToken() }
+        store.setVisibilityProvider { [weak delegate] in delegate?.mainWindowVisible ?? false }
         store.onSelectInWeb = { sessionID in
             webStore.select(session: sessionID)
         }
@@ -114,6 +115,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Obse
 
     private weak var mainWindow: NSWindow?
     private var forceQuit = false
+
+    /// 主窗是否真的在屏：关窗 = `orderOut` 后为 false，最小化也算 false。
+    /// 这是「不可见即停表」的唯一判据（AppStore 注入）。
+    var mainWindowVisible: Bool {
+        guard !NSApp.isHidden, let window = mainWindow else { return false }
+        return window.isVisible && !window.isMiniaturized
+    }
 
     // MARK: - 窗口
 

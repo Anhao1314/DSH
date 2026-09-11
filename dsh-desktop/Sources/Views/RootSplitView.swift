@@ -66,6 +66,7 @@ struct RootSplitView: View {
                 Image(systemName: "arrow.triangle.2.circlepath")
             }
             .help(Copy.actionRestartContainer)
+            .accessibilityLabel(Copy.actionRestartContainer)
 
             Button {
                 webStore.reload()
@@ -73,6 +74,7 @@ struct RootSplitView: View {
                 Image(systemName: "arrow.clockwise")
             }
             .help(Copy.actionReload)
+            .accessibilityLabel(Copy.actionReload)
 
             Button {
                 if let url = stack.consoleURL { NSWorkspace.shared.open(url) }
@@ -80,6 +82,7 @@ struct RootSplitView: View {
                 Image(systemName: "safari")
             }
             .help(Copy.actionOpenInBrowser)
+            .accessibilityLabel(Copy.actionOpenInBrowser)
             .disabled(stack.consoleURL == nil)
         }
     }

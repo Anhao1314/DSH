@@ -130,6 +130,7 @@ struct HintRow: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: systemImage).font(.caption2).foregroundStyle(.tertiary)
+                .accessibilityHidden(true)   // 纯装饰：隔壁文案已经表达了含义
             Text(text).font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)

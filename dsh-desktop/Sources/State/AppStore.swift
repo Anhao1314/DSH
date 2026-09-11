@@ -46,6 +46,7 @@ final class AppStore: ObservableObject {
     private var tick = 0
     private var visible = true
     private var visibilityOverride: Bool?
+    private var visibilityProvider: (() -> Bool)?
     private var runningMap: [String: Bool] = [:]
     private var lastTimelineKey = ""
     private var noteToken = 0
@@ -107,9 +108,15 @@ final class AppStore: ObservableObject {
         visibilityOverride = value
     }
 
+    /// 窗口可见性的真实来源（Main 侧注入 AppDelegate 的主窗判定）。
+    /// 不用 `NSApp.windows` 猜：MenuBarExtra 的 NSStatusBarWindow 常驻可见，会让停表永远失效。
+    func setVisibilityProvider(_ provider: @escaping () -> Bool) {
+        visibilityProvider = provider
+    }
+
     /// 窗口隐藏 / 最小化 / 最小化在 Dock：都算不可见（M3 验收④的停表条件）。
     private func syncVisibility() {
-        let now = visibilityOverride ?? AppStore.windowIsVisible()
+        let now = visibilityOverride ?? visibilityProvider?() ?? Self.windowIsVisible()
         guard now != visible else { return }
         visible = now
         if now { Task { await refresh() } }

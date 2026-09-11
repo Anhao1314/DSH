@@ -12,6 +12,7 @@ enum Copy {
     static let phaseCheckingOrb = "检查 OrbStack…"
     static let phaseStartingOrb = "启动 OrbStack…"
     static let phaseComposeUp = "启动容器…"
+    static let phaseBuildingImage = "首次构建镜像（需要几分钟）…"
     static let phaseWaitingHealth = "等待就绪…"
     static let phaseReadingToken = "读取凭据…"
     static let phaseConnecting = "连接中继…"
